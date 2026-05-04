@@ -1,0 +1,12 @@
+[client]
+showErrorDetails = false
+
+[server]
+headless = true
+maxUploadSize = 50
+
+[logger]
+level = "info"
+
+[browser]
+gatherUsageStats = false

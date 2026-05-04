@@ -1,0 +1,208 @@
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║                    👋 BEM-VINDO À VERSÃO 2.1! 👋                        ║
+║                                                                          ║
+║              TRUST CORPORATION - Contrato Seguro IA                      ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+
+O QUE VOCÊ PRECISA SABER:
+═══════════════════════════════════════════════════════════════════════════
+
+✅ 2 GRANDES MELHORIAS FORAM IMPLEMENTADAS:
+
+1️⃣ BOTÃO "VER RESUMO" - Agora aparece visível na interface
+2️⃣ COMPARTILHAR PDF NO WHATSAPP - Envia análise completa em PDF
+
+
+COMECE AQUI:
+═══════════════════════════════════════════════════════════════════════════
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ 🚀 SE QUER USAR AGORA MESMO:                                            │
+├──────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  1. Execute: streamlit run app.py                                       │
+│  2. Carregue um contrato (PDF ou TXT)                                  │
+│  3. Clique em "🚀 Analisar Agora"                                      │
+│  4. Teste os novos botões:                                             │
+│     • "📋 Ver Resumo" → Mostra resumo dos riscos                       │
+│     • "📱 Compartilhar PDF WhatsApp" → Envia PDF completo              │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ 📖 SE QUER LER DOCUMENTAÇÃO PRIMEIRO:                                  │
+├──────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  Escolha UM dos seguintes arquivos:                                    │
+│                                                                          │
+│  📋 README_ATUALIZACAO_v2.1.md                                         │
+│     └─ Resumo executivo (2 minutos de leitura)                         │
+│                                                                          │
+│  📝 RESUMO_RAPIDO_ATUALIZACAO.txt                                      │
+│     └─ Checklist visual com caixas (3 minutos)                         │
+│                                                                          │
+│  📖 GUIA_RAPIDO_BOTOES.md                                              │
+│     └─ Guia prático completo com screenshots (5 minutos)               │
+│                                                                          │
+│  🔧 MELHORIAS_IMPLEMENTADAS.md                                         │
+│     └─ Detalhes técnicos para desenvolvedores (10 minutos)             │
+│                                                                          │
+│  ✅ CHECKLIST_IMPLEMENTACAO.md                                         │
+│     └─ Status completo do projeto (leitura rápida)                     │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ 📊 SE QUER VISÃO GERAL COMPLETA:                                       │
+├──────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  Leia: SUMARIO_IMPLEMENTACAO_V2.1.txt                                 │
+│  └─ Resumo visual com todas as informações (5 minutos)                │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+
+
+GUIA RÁPIDO:
+═══════════════════════════════════════════════════════════════════════════
+
+BOTÃO "VER RESUMO":
+──────────────────
+Onde fica:  Seção "Resultados da Análise" → "Resumo de Pontos de Atenção"
+O que faz:  Mostra resumo de até 20 principais pontos de atenção
+Como usar:  1. Clique no botão "📋 Ver Resumo"
+           2. Leia os riscos principais
+           3. Clique novamente para ocultar (opcional)
+
+
+BOTÃO "COMPARTILHAR PDF WHATSAPP":
+──────────────────────────────────
+Onde fica:  Seção "Exportar Análise" (terceira coluna)
+O que faz:  Gera PDF e o compartilha no WhatsApp
+Como usar:  1. Clique no botão "📱 Compartilhar PDF WhatsApp"
+           2. Aguarde: "Preparando PDF para compartilhamento..."
+           3. Escolha UMA opção:
+
+              OPÇÃO A - WhatsApp Web/Desktop:
+              • Clique em "🚀 Abrir WhatsApp e Compartilhar"
+              • WhatsApp abre em seu navegador/aplicativo
+              • Anexe o PDF (arquivo salvo em temp/)
+              • Envie
+
+              OPÇÃO B - Download Direto:
+              • Clique em "⬇️ Baixar PDF para Compartilhar"
+              • Arquivo baixa no seu computador
+              • Abra WhatsApp e compartilhe manualmente
+
+
+NOVIDADES:
+═══════════════════════════════════════════════════════════════════════════
+
+✨ Resumo aparece com um clique
+✨ PDF é gerado automaticamente
+✨ Arquivo é salvo em temp/ para referência
+✨ Mensagem profissional no WhatsApp
+✨ Duas opções de compartilhamento
+✨ Sem quebra de compatibilidade com versão anterior
+
+
+PERGUNTAS FREQUENTES:
+═══════════════════════════════════════════════════════════════════════════
+
+P: Preciso instalar algo novo?
+R: Não! Usa as mesmas dependências da versão anterior.
+
+P: O botão não aparece. Por quê?
+R: Você precisa:
+   1. Carregar um arquivo (PDF ou TXT)
+   2. Clique em "Analisar Agora"
+   3. Aguarde a análise completar
+   4. Os botões aparecerem automaticamente
+
+P: Posso usar o WhatsApp Web?
+R: Sim! O botão abre o WhatsApp Web/Desktop automaticamente.
+   Você precisa anexar o PDF manualmente.
+
+P: Onde o PDF é salvo?
+R: Na pasta: C:\ContratoSeguro-IA\temp\
+   Formato: analise_[nome-contrato]_share.pdf
+
+P: Posso deletar os arquivos em temp/?
+R: Sim! São temporários. Pode deletar quando quiser.
+
+P: Pode enviar múltiplos contatos via WhatsApp?
+R: O app abre o WhatsApp uma vez. Você pode copiar/colar
+   o link para enviar para vários contatos.
+
+P: O PDF inclui a análise completa?
+R: Sim! O PDF é gerado com a análise COMPLETA, não apenas resumo.
+
+
+ESTRUTURA DOS ARQUIVOS:
+═══════════════════════════════════════════════════════════════════════════
+
+ARQUIVO PRINCIPAL:
+✓ app.py (MODIFICADO)
+  ├─ Linha ~655: Novo botão "Ver Resumo"
+  └─ Linha ~785: Novo botão "Compartilhar PDF WhatsApp"
+
+DOCUMENTAÇÃO CRIADA:
+✓ LEIA_ISSO_PRIMEIRO_v2.1.txt (Este arquivo)
+✓ README_ATUALIZACAO_v2.1.md (Resumo executivo)
+✓ RESUMO_RAPIDO_ATUALIZACAO.txt (Visual com caixas)
+✓ GUIA_RAPIDO_BOTOES.md (Guia prático completo)
+✓ MELHORIAS_IMPLEMENTADAS.md (Detalhes técnicos)
+✓ CHECKLIST_IMPLEMENTACAO.md (Status do projeto)
+✓ SUMARIO_IMPLEMENTACAO_V2.1.txt (Visão geral completa)
+
+
+ARQUIVO DE SAÍDA:
+✓ temp/analise_[nome]_share.pdf (Criado quando compartilha)
+
+
+PRÓXIMAS ETAPAS:
+═══════════════════════════════════════════════════════════════════════════
+
+Se quer começar imediatamente:
+→ Execute: streamlit run app.py
+→ Teste os novos botões
+
+Se quer entender tudo antes:
+→ Leia: GUIA_RAPIDO_BOTOES.md
+→ Depois execute a app
+
+Se quer detalhes técnicos:
+→ Leia: MELHORIAS_IMPLEMENTADAS.md
+→ Revise as linhas ~655 e ~785 do app.py
+
+
+DÚVIDAS?
+═══════════════════════════════════════════════════════════════════════════
+
+1. Verifique: GUIA_RAPIDO_BOTOES.md → "Solução de Problemas"
+2. Leia: MELHORIAS_IMPLEMENTADAS.md → "Detalhes técnicos"
+3. Verifique os logs da aplicação
+4. Tente reiniciar a aplicação
+
+
+VERSÃO:
+═══════════════════════════════════════════════════════════════════════════
+
+Versão: 2.1
+Data: 2024
+Status: ✅ PRONTO PARA USAR
+
+
+═══════════════════════════════════════════════════════════════════════════
+🎉 BEM-VINDO À VERSÃO 2.1! 🎉
+
+Agora com:
+✅ Botão de resumo visível
+✅ Compartilhamento de PDF no WhatsApp
+✅ Interface mais intuitiva
+✅ Documentação completa
+
+Aproveite! 🚀
+═══════════════════════════════════════════════════════════════════════════

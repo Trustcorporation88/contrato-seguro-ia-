@@ -1,0 +1,45 @@
+# Secrets - NUNCA commitar
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Cache e dados locais
+cache/
+cache_test/
+!cache/.gitkeep
+
+# Logs
+logs/
+!logs/.gitkeep
+
+# Arquivos temporarios
+temp/
+*.tmp
+
+# Uploads de teste
+temp.pdf
+*.pdf
+
+# Streamlit
+.streamlit/secrets.toml
+
+# IDE
+.vscode/
+.idea/
+.zed/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Arquivos grandes/data
+*.db
+*.sqlite3
+nul

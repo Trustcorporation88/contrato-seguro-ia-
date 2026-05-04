@@ -1,0 +1,13 @@
+streamlit
+pymupdf
+python-dotenv
+google-generativeai
+ollama
+reportlab
+python-docx
+requests
+matplotlib
+qrcode
+Pillow
+openpyxl
+pytesseract
