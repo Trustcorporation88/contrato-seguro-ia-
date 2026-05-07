@@ -26,6 +26,8 @@ from pdf_extractor import extrair_metadados_pdf, extrair_texto_pdf_bytes
 # CONFIGURAÇÕES INICIAIS
 # ================================================================
 
+LOGO_PATH = Path(__file__).resolve().parent / "assets" / "Logo TRUST Contrato Seguro.png"
+
 # Carregar variáveis de ambiente
 load_dotenv(override=True)
 
@@ -290,6 +292,18 @@ if "db_service" not in st.session_state:
 if "authenticated_user" not in st.session_state:
     st.session_state.authenticated_user = None
 
+
+def render_logo(width: int = 280) -> None:
+    """Renderiza a logo institucional quando disponível."""
+    try:
+        if LOGO_PATH.exists():
+            st.image(str(LOGO_PATH), width=width)
+        else:
+            st.write("🔐")
+    except Exception as e:
+        logger.warning(f"Logo não encontrada: {str(e)}")
+        st.write("🔐")
+
 if st.session_state.authenticated_user is None:
 
     # Google OAuth callback
@@ -313,6 +327,10 @@ if st.session_state.authenticated_user is None:
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
+        logo_col1, logo_col2, logo_col3 = st.columns([1, 2, 1])
+        with logo_col2:
+            render_logo(width=260)
+
         st.markdown("---")
         st.markdown(
             '<h2 style="text-align: center; color: #3A6FA0;">🔐 Acesso ao Sistema</h2>',
@@ -441,15 +459,7 @@ def limpar_analise():
 col1, col2 = st.columns([1, 4])
 
 with col1:
-    try:
-        logo_path = Path("assets/Logo TRUST Contrato Seguro.png")
-        if logo_path.exists():
-            st.image(str(logo_path), width=300)
-        else:
-            st.write("🔐")
-    except Exception as e:
-        logger.warning(f"Logo não encontrada: {str(e)}")
-        st.write("🔐")
+    render_logo(width=300)
 
 with col2:
     st.title("TRUST CORPORATION")
