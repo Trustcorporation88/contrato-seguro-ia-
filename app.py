@@ -401,8 +401,6 @@ if st.session_state.authenticated_user is None:
             )
             st.caption("Se o redirecionamento automático não abrir, use o botão acima.")
 
-        st.caption("Usuário padrão: admin / admin123")
-
     st.stop()
 
 # ================================================================
@@ -756,7 +754,7 @@ with st.expander("📖 Tutorial — Como usar o ContratoSeguro IA", expanded=Fal
     ### 🚀 Passo a passo
 
     **1. 🔐 Login**
-    - Use `admin` / `admin123` (padrão) ou crie novos usuários
+    - Faça login com suas credenciais ou use Google OAuth
 
     **2. 📄 Upload do Contrato**
     - Formatos aceitos: **PDF**, **Word** (.docx), **Excel** (.xlsx), **TXT**
