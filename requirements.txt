@@ -1,8 +1,7 @@
 streamlit
 pymupdf
 python-dotenv
-google-generativeai
-ollama
+google-genai
 reportlab
 python-docx
 requests

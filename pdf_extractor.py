@@ -1,11 +1,13 @@
 import logging
 import os
 import re
+import base64
 from functools import lru_cache
 from io import BytesIO
 from typing import Dict, Optional, Tuple
 
 import fitz  # PyMuPDF
+import requests
 
 logger = logging.getLogger(__name__)
 _OCR_LANGUAGES = tuple(
@@ -14,6 +16,7 @@ _OCR_LANGUAGES = tuple(
     if lang.strip()
 )
 _WORD_PATTERN = re.compile(r"[0-9A-Za-zÀ-ÿ]{2,}")
+_OCR_SPACE_API_KEY = os.getenv("OCR_SPACE_API_KEY", "")
 
 try:
     import pytesseract
@@ -121,9 +124,71 @@ def _page_has_usable_text(text: str) -> bool:
     return alnum_ratio >= 0.45
 
 
+def _ocr_page_with_api(page) -> str:
+    """
+    Aplica OCR em uma página usando OCR.space API como fallback.
+
+    Args:
+        page: Página do PyMuPDF
+
+    Returns:
+        Texto extraído via OCR API
+    """
+    if not _OCR_SPACE_API_KEY:
+        logger.warning(
+            f"OCR_SPACE_API_KEY não configurada - página {page.number + 1} sem OCR"
+        )
+        return ""
+
+    try:
+        # Renderiza página como imagem
+        pix = page.get_pixmap(dpi=300)
+        img_bytes = pix.tobytes("png")
+        img_base64 = base64.b64encode(img_bytes).decode("utf-8")
+
+        # Chama API OCR.space
+        url = "https://api.ocr.space/parse/image"
+        payload = {
+            "apikey": _OCR_SPACE_API_KEY,
+            "language": "por",  # Português
+            "isOverlayRequired": False,
+            "base64Image": f"data:image/png;base64,{img_base64}",
+        }
+
+        response = requests.post(url, data=payload, timeout=60)
+        response.raise_for_status()
+        result = response.json()
+
+        if result.get("IsErroredOnProcessing"):
+            error_msg = result.get("ErrorMessage", ["Erro desconhecido"])[0]
+            logger.warning(
+                f"OCR.space erro na página {page.number + 1}: {error_msg}"
+            )
+            return ""
+
+        parsed_results = result.get("ParsedResults", [])
+        if not parsed_results:
+            logger.warning(f"OCR.space sem resultado para página {page.number + 1}")
+            return ""
+
+        text = parsed_results[0].get("ParsedText", "").strip()
+        logger.info(
+            f"OCR.space aplicado na página {page.number + 1} "
+            f"({len(text)} caracteres extraídos)"
+        )
+        return text
+
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"Erro de rede ao chamar OCR.space na página {page.number + 1}: {str(e)}")
+        return ""
+    except Exception as e:
+        logger.warning(f"Erro ao aplicar OCR API na página {page.number + 1}: {str(e)}")
+        return ""
+
+
 def _ocr_page(page) -> str:
     """
-    Aplica OCR em uma página usando pytesseract.
+    Aplica OCR em uma página usando pytesseract (local) ou OCR.space API (fallback).
 
     Args:
         page: Página do PyMuPDF
@@ -132,38 +197,42 @@ def _ocr_page(page) -> str:
         Texto extraído via OCR
     """
     ocr_ready, ocr_reason, available_languages = get_ocr_status()
-    if not ocr_ready:
-        logger.warning(f"OCR indisponível na página {page.number + 1}: {ocr_reason}")
-        return ""
+    
+    # Tenta Tesseract local primeiro (mais rápido e privado)
+    if ocr_ready:
+        try:
+            pix = page.get_pixmap(dpi=300)
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            best_text = ""
+            best_lang = None
 
-    try:
-        pix = page.get_pixmap(dpi=300)
-        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        best_text = ""
-        best_lang = None
+            for lang in _get_candidate_ocr_languages(available_languages):
+                try:
+                    texto = pytesseract.image_to_string(img, lang=lang).strip()
+                except pytesseract.TesseractError as lang_error:
+                    logger.warning(
+                        f"OCR falhou na página {page.number + 1} com idioma '{lang}': {str(lang_error)}"
+                    )
+                    continue
 
-        for lang in _get_candidate_ocr_languages(available_languages):
-            try:
-                texto = pytesseract.image_to_string(img, lang=lang).strip()
-            except pytesseract.TesseractError as lang_error:
-                logger.warning(
-                    f"OCR falhou na página {page.number + 1} com idioma '{lang}': {str(lang_error)}"
+                if _text_quality_score(texto) > _text_quality_score(best_text):
+                    best_text = texto
+                    best_lang = lang
+
+            if best_text and best_lang:
+                logger.info(
+                    f"Tesseract OCR selecionou idioma '{best_lang}' para a página {page.number + 1}"
                 )
-                continue
+                return best_text
 
-            if _text_quality_score(texto) > _text_quality_score(best_text):
-                best_text = texto
-                best_lang = lang
-
-        if best_text and best_lang:
-            logger.info(
-                f"OCR selecionou idioma '{best_lang}' para a página {page.number + 1}"
-            )
-
-        return best_text
-    except Exception as e:
-        logger.warning(f"Erro ao aplicar OCR na página {page.number + 1}: {str(e)}")
-        return ""
+        except Exception as e:
+            logger.warning(f"Erro ao aplicar Tesseract OCR na página {page.number + 1}: {str(e)}")
+    
+    # Fallback para API externa se Tesseract não disponível ou falhou
+    logger.info(
+        f"Tesseract indisponível ({ocr_reason}), tentando OCR.space API para página {page.number + 1}"
+    )
+    return _ocr_page_with_api(page)
 
 
 def _extract_page_text(page, enable_ocr: bool) -> Tuple[str, bool]:
@@ -264,14 +333,20 @@ def extrair_texto_pdf_bytes(
 
         if not texto_final and enable_ocr:
             ocr_ready, ocr_reason, available_languages = get_ocr_status()
-            if not ocr_ready:
+            if not ocr_ready and not _OCR_SPACE_API_KEY:
                 raise Exception(
-                    f"OCR indisponível para PDF escaneado: {ocr_reason}"
+                    f"OCR indisponível para PDF escaneado: {ocr_reason}. "
+                    "Configure OCR_SPACE_API_KEY para usar OCR via API."
+                )
+            if ocr_ready:
+                raise Exception(
+                    "Nenhum texto foi extraído do PDF. O arquivo parece escaneado, "
+                    f"mas o OCR não conseguiu reconhecer conteúdo legível. "
+                    f"Idiomas disponíveis: {', '.join(available_languages)}"
                 )
             raise Exception(
                 "Nenhum texto foi extraído do PDF. O arquivo parece escaneado, "
-                f"mas o OCR não conseguiu reconhecer conteúdo legível. "
-                f"Idiomas disponíveis: {', '.join(available_languages)}"
+                "mas o OCR via API não conseguiu reconhecer conteúdo legível."
             )
 
         return texto_final

@@ -5,18 +5,14 @@ Este módulo implementa um sistema de cache em memória com persistência em JSO
 para evitar re-análise de contratos duplicados.
 """
 
-import hashlib
 import json
 import logging
-import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-# Configuração de logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+from config import CACHE_EXPIRY_HOURS, compute_hash
+
 logger = logging.getLogger(__name__)
 
 
@@ -64,16 +60,7 @@ class CacheManager:
             raise
 
     def _compute_hash(self, texto_contrato: str) -> str:
-        """
-        Calcula o hash SHA256 do texto do contrato.
-
-        Args:
-            texto_contrato: Texto do contrato a ser hasheado
-
-        Returns:
-            Hash SHA256 em formato hexadecimal
-        """
-        return hashlib.sha256(texto_contrato.encode("utf-8")).hexdigest()
+        return compute_hash(texto_contrato)
 
     def _load_history(self) -> None:
         """Carrega o histórico de análises do arquivo JSON."""
@@ -106,30 +93,43 @@ class CacheManager:
     def _remove_oldest_entries(self) -> None:
         """Remove as entradas mais antigas se o cache exceder o limite."""
         if len(self.cache_memory) > self.max_history:
-            # Ordena por data (assumindo que "data" existe em todas as entradas)
             sorted_entries = sorted(
                 self.cache_memory.items(),
                 key=lambda x: x[1].get("data", ""),
                 reverse=False,
             )
 
-            # Remove entradas extras
             entries_to_remove = len(self.cache_memory) - self.max_history
             for hash_key, _ in sorted_entries[:entries_to_remove]:
                 removed_data = self.cache_memory.pop(hash_key)
                 logger.info(f"Entrada removida do cache (limite excedido): {hash_key}")
 
+    def _remove_expired_entries(self) -> None:
+        """Remove entradas expiradas com base no TTL (CACHE_EXPIRY_HOURS)."""
+        now = datetime.now()
+        expired = [
+            key
+            for key, entry in self.cache_memory.items()
+            if now
+            - datetime.fromisoformat(entry.get("data", "2000-01-01T00:00:00"))
+            > timedelta(hours=CACHE_EXPIRY_HOURS)
+        ]
+        for key in expired:
+            self.cache_memory.pop(key)
+            logger.info(f"Entrada expirada removida do cache: {key}")
+
     def get_analysis(self, texto_contrato: str) -> Optional[Dict[str, Any]]:
         """
-        Recupera a análise em cache se existir.
+        Recupera a análise em cache se existir e não estiver expirada.
 
         Args:
             texto_contrato: Texto do contrato
 
         Returns:
-            Dicionário com a análise se encontrada, None caso contrário
+            Dicionário com a análise se encontrada e válida, None caso contrário
         """
         try:
+            self._remove_expired_entries()
             hash_contrato = self._compute_hash(texto_contrato)
 
             if hash_contrato in self.cache_memory:

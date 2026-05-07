@@ -21,6 +21,7 @@ Exemplo de uso:
     gemini_model = config['GEMINI_MODEL']
 """
 
+import hashlib
 import importlib.util
 import logging
 import logging.handlers
@@ -38,11 +39,9 @@ MIN_TEXT_LENGTH = 10  # Mínimo de caracteres para análise
 
 # Modelos de IA
 GEMINI_MODEL = "gemini-2.5-flash"  # v1beta - Validado pelo usuário
-OLLAMA_MODEL = "mistral"
 
 # URLs e endpoints
 GEMINI_API_VERSION = "v1beta"  # Versão validada
-OLLAMA_URL = "http://localhost:11434/api/generate"
 
 # Timeouts (em segundos)
 REQUEST_TIMEOUT = 60  # Aumentado para evitar 504
@@ -82,12 +81,12 @@ LOG_BACKUP_COUNT = 5  # Número de backups a manter
 
 # ==================== DEPENDÊNCIAS NECESSÁRIAS ====================
 
+# Pacote google-generativeai: mantido aqui para check_dependencies() compatibilidade
 REQUIRED_PACKAGES = {
     "streamlit": "streamlit",
-    "pymupdf": "fitz",  # PyMuPDF
+    "pymupdf": "fitz",
     "python-dotenv": "dotenv",
     "google-generativeai": "google.generativeai",
-    "ollama": "ollama",
 }
 
 OPTIONAL_PACKAGES = {
@@ -209,7 +208,7 @@ def check_api_keys(verbose: bool = True) -> Dict[str, bool]:
     required_keys = ["GEMINI_API_KEY"]
 
     # Chaves opcionais
-    optional_keys = ["OLLAMA_API_KEY"]
+    optional_keys = []
 
     # Verificar chaves obrigatórias
     for key in required_keys:
@@ -308,7 +307,7 @@ def load_env_config(
 
     # Carregar variáveis do arquivo .env
     if env_file.exists():
-        load_dotenv(env_file)
+        load_dotenv(env_file, override=True)
         if verbose:
             print(f"✅ Arquivo .env carregado: {env_file}")
     elif verbose:
@@ -325,9 +324,6 @@ def load_env_config(
         "MIN_TEXT_LENGTH": int(os.getenv("MIN_TEXT_LENGTH", MIN_TEXT_LENGTH)),
         # Modelos
         "GEMINI_MODEL": os.getenv("GEMINI_MODEL", GEMINI_MODEL),
-        "OLLAMA_MODEL": os.getenv("OLLAMA_MODEL", OLLAMA_MODEL),
-        # URLs
-        "OLLAMA_URL": os.getenv("OLLAMA_URL", OLLAMA_URL),
         # Timeouts
         "REQUEST_TIMEOUT": int(os.getenv("REQUEST_TIMEOUT", REQUEST_TIMEOUT)),
         "ANALYSIS_TIMEOUT": int(os.getenv("ANALYSIS_TIMEOUT", ANALYSIS_TIMEOUT)),
@@ -418,10 +414,12 @@ def setup_logging(
     verbose: bool = True,
 ) -> logging.Logger:
     """
-    Configura o sistema de logging estruturado da aplicação.
+    Configura o sistema de logging estruturado da aplicação no root logger.
 
     Cria um logger centralizado com saída para arquivo e console.
     Usa RotatingFileHandler para limitar o tamanho dos logs.
+    Todos os módulos que usam logging.getLogger(__name__) herdam
+    automaticamente esta configuração.
 
     Args:
         log_level: Nível de log (DEBUG, INFO, WARNING, ERROR, CRITICAL).
@@ -431,60 +429,69 @@ def setup_logging(
         verbose: Se True, exibe mensagens de setup. Default: True
 
     Returns:
-        Logger configurado pronto para uso
+        Root logger configurado pronto para uso
 
     Example:
         >>> logger = setup_logging()
         >>> logger.info("Aplicação iniciada")
-        >>> logger.error("Ocorreu um erro")
-
-        >>> logger = setup_logging(log_level="DEBUG", verbose=False)
     """
-    # Criar diretório de logs se não existir
     _create_directories()
 
-    # Determinar nível de log
     if log_level is None:
         log_level = LOG_LEVEL
 
     log_level = getattr(logging, log_level.upper(), logging.INFO)
 
-    # Determinar arquivo de log
     if log_file is None:
         log_file = LOGS_DIR / "contrato_seguro.log"
     else:
         log_file = Path(log_file)
 
-    # Criar logger
-    logger = logging.getLogger("ContratoSeguro")
-    logger.setLevel(log_level)
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
 
-    # Evitar duplicar handlers
-    if logger.handlers:
-        return logger
+    if root_logger.handlers:
+        return root_logger
 
-    # Criar formatador
     formatter = logging.Formatter(LOG_FORMAT)
 
-    # Handler para arquivo (com rotação)
     file_handler = logging.handlers.RotatingFileHandler(
         log_file, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUP_COUNT
     )
     file_handler.setLevel(log_level)
     file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
+    root_logger.addHandler(file_handler)
 
-    # Handler para console
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(log_level)
     console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+    root_logger.addHandler(console_handler)
 
     if verbose:
-        logger.info(f"Logging configurado - Nível: {logging.getLevelName(log_level)}")
-        logger.info(f"Arquivo de log: {log_file}")
+        root_logger.info(f"Logging configurado - Nível: {logging.getLevelName(log_level)}")
+        root_logger.info(f"Arquivo de log: {log_file}")
 
-    return logger
+    return root_logger
+
+
+# ==================== UTILITÁRIOS COMPARTILHADOS ====================
+
+
+def compute_hash(texto: str) -> str:
+    """
+    Calcula o hash SHA256 de um texto, compartilhado por todos os serviços.
+
+    Args:
+        texto: Texto a ser hasheado
+
+    Returns:
+        Hash SHA256 em formato hexadecimal
+
+    Example:
+        >>> compute_hash("contrato de teste")
+        'a1b2c3d4...'
+    """
+    return hashlib.sha256(texto.encode("utf-8")).hexdigest()
 
 
 # ==================== SUMMARY E UTILITY ====================
@@ -511,10 +518,6 @@ def print_config_summary(config: Dict[str, Any]) -> None:
 
     print("\n🤖 Modelos:")
     print(f"  • GEMINI_MODEL: {config['GEMINI_MODEL']}")
-    print(f"  • OLLAMA_MODEL: {config['OLLAMA_MODEL']}")
-
-    print("\n🌐 URLs:")
-    print(f"  • OLLAMA_URL: {config['OLLAMA_URL']}")
 
     print("\n⏱️  Timeouts:")
     print(f"  • REQUEST_TIMEOUT: {config['REQUEST_TIMEOUT']}s")

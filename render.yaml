@@ -1,7 +1,9 @@
 services:
   - type: web
     name: contrato-seguro-ia
-    runtime: docker
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.address=0.0.0.0 --server.port=${PORT:-8501}
     healthCheckPath: /
     autoDeploy: true
     envVars:
@@ -30,4 +32,6 @@ services:
       - key: SMTP_PASSWORD
         sync: false
       - key: SENDER_EMAIL
+        sync: false
+      - key: OCR_SPACE_API_KEY
         sync: false

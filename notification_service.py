@@ -23,6 +23,8 @@ from urllib.parse import quote
 import requests
 from requests.auth import HTTPBasicAuth
 
+from config import compute_hash
+
 logger = logging.getLogger(__name__)
 
 SHARE_DIR = Path(__file__).parent / "cache" / "shares"
@@ -109,10 +111,11 @@ class NotificationService:
             return True, f"Email enviado com sucesso para {to_email}"
 
         except smtplib.SMTPAuthenticationError:
+            logger.error("Erro de autenticacao SMTP")
             return False, "Erro de autenticação SMTP. Verifique usuário e senha"
         except Exception as e:
             logger.error(f"Erro ao enviar email: {e}")
-            return False, f"Erro ao enviar email: {str(e)}"
+            return False, "Erro ao enviar email. Tente novamente mais tarde."
 
     def generate_whatsapp_link(self, texto_resumo: str, contract_name: str) -> str:
         """
@@ -158,9 +161,9 @@ class NotificationService:
         """
         try:
             timestamp = datetime.now().isoformat()
-            token = hashlib.sha256(
-                f"{contract_name}{timestamp}{os.urandom(8)}".encode()
-            ).hexdigest()[:16]
+            token = compute_hash(
+                f"{contract_name}{timestamp}{os.urandom(8).hex()}"
+            )[:16]
 
             share_data = {
                 "token": token,
@@ -189,7 +192,7 @@ class NotificationService:
 
         except Exception as e:
             logger.error(f"Erro ao criar link: {e}")
-            return False, {"error": str(e)}
+            return False, {"error": "Erro ao criar link compartilhável"}
 
     def get_shared_analysis(
         self, token: str, password: Optional[str] = None
@@ -311,7 +314,7 @@ class NotificationService:
 
         except Exception as e:
             logger.error(f"Erro upload PDF: {e}")
-            return False, f"Erro: {str(e)}"
+            return False, "Falha no upload do PDF. Tente novamente."
 
     def _twilio_send(self, to_number: str, body: str, media_url: str = "") -> Tuple[bool, str]:
         """Método interno para envio via Twilio WhatsApp."""
@@ -349,7 +352,8 @@ class NotificationService:
             return False, f"Twilio erro: {error[:200]}"
 
         except Exception as e:
-            return False, f"Twilio erro: {str(e)[:200]}"
+            logger.error(f"Twilio erro: {e}")
+            return False, "Falha ao enviar mensagem via Twilio. Tente novamente."
 
     def send_whatsapp_pdf_twilio(
         self, to_number: str, pdf_buffer: BytesIO, filename: str,
@@ -467,7 +471,7 @@ class NotificationService:
                 return False, f"Erro: {error_msg}"
         except Exception as e:
             logger.error(f"Erro ao enviar WhatsApp: {e}")
-            return False, f"Erro: {str(e)}"
+            return False, "Falha ao enviar mensagem via WhatsApp. Tente novamente."
 
     def send_whatsapp_document(
         self, phone_number: str, pdf_buffer: BytesIO, filename: str,
@@ -552,7 +556,7 @@ class NotificationService:
 
         except Exception as e:
             logger.error(f"Erro ao enviar PDF via WhatsApp: {e}")
-            return False, f"Erro: {str(e)}"
+            return False, "Falha ao enviar PDF via WhatsApp. Tente novamente."
 
 
 if __name__ == "__main__":

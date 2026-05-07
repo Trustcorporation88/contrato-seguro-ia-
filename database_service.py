@@ -13,6 +13,8 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, List, Optional
 
+from config import compute_hash
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = Path(__file__).parent / "cache" / "contrato_seguro.db"
@@ -131,9 +133,7 @@ class DatabaseService:
         Returns:
             ID da análise salva
         """
-        import hashlib
-
-        contract_hash = hashlib.sha256(contract_text.encode("utf-8")).hexdigest()
+        contract_hash = compute_hash(contract_text)
         now = datetime.now().isoformat()
 
         with self._lock:
@@ -174,9 +174,7 @@ class DatabaseService:
 
     def get_analysis_by_hash(self, contract_text: str) -> Optional[Dict[str, Any]]:
         """Recupera análise pelo hash do texto do contrato."""
-        import hashlib
-
-        contract_hash = hashlib.sha256(contract_text.encode("utf-8")).hexdigest()
+        contract_hash = compute_hash(contract_text)
 
         conn = self._get_conn()
         try:
