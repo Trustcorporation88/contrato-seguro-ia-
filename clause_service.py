@@ -7,15 +7,25 @@ usando IA, com biblioteca de cláusulas-padrão por tipo de contrato.
 
 import logging
 import os
+import re as _re
 from typing import Any, Dict, List, Optional, Tuple
 
-import google.generativeai as genai
-from dotenv import load_dotenv
-
-load_dotenv()
 logger = logging.getLogger(__name__)
 
+try:
+    from google import genai
+
+    GEMINI_AVAILABLE = True
+except Exception as import_error:
+    GEMINI_AVAILABLE = False
+    logger.warning(f"google-genai indisponivel em clause_service. Motivo: {import_error}")
+
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+RISCO_BLOCO_PATTERN = _re.compile(
+    r"\*\*[🔴🟠🟢]\s*RISCO\s*(ALTO|M[ÉE]DIO|BAIXO)\*\*",
+    _re.IGNORECASE,
+)
 
 CLAUSULAS_PADRAO = {
     "multa_rescisoria": """
@@ -71,13 +81,15 @@ def sugerir_clausula_alternativa(
     Returns:
         Tuple (sucesso, clausula_sugerida)
     """
+    if not GEMINI_AVAILABLE:
+        return False, "Erro: google-genai não está disponível no ambiente"
+
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         return False, "Erro: GEMINI_API_KEY não configurada"
 
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(GEMINI_MODEL)
+        client = genai.Client(api_key=api_key)
 
         prompt = f"""Você é um especialista em Direito Contratual brasileiro.
 
@@ -104,10 +116,10 @@ FORMATO DA RESPOSTA:
 
 Seja direto, objetivo e técnico. Use linguagem jurídica adequada."""
 
-        response = model.generate_content(
-            prompt,
-            request_options={"timeout": 60},
-            generation_config={"temperature": 0.5},
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config={"temperature": 0.5},
         )
 
         return True, response.text
@@ -127,16 +139,9 @@ def extrair_clausulas_risco(analise_texto: str) -> List[Dict[str, str]]:
     Returns:
         Lista de cláusulas com tipo, problema e base legal
     """
-    import re
-
     clausulas = []
 
-    bloco_pattern = re.compile(
-        r"\*\*[🔴🟠🟢]\s*RISCO\s*(ALTO|M[ÉE]DIO|BAIXO)\*\*",
-        re.IGNORECASE,
-    )
-
-    matches = list(bloco_pattern.finditer(analise_texto))
+    matches = list(RISCO_BLOCO_PATTERN.finditer(analise_texto))
 
     for i, match in enumerate(matches):
         nivel_str = match.group(1).upper()
@@ -155,26 +160,26 @@ def extrair_clausulas_risco(analise_texto: str) -> List[Dict[str, str]]:
 
         clausula = {"nivel": nivel, "texto_clausula": "", "problema": "", "base_legal": ""}
 
-        clausula_match = re.search(
+        clausula_match = _re.search(
             r"Cl[aá]usula\S*\s*:?\s*(.+?)(?:\n|$)",
             bloco,
-            re.IGNORECASE,
+            _re.IGNORECASE,
         )
         if clausula_match:
             clausula["texto_clausula"] = clausula_match.group(1).strip()
 
-        problema_match = re.search(
+        problema_match = _re.search(
             r"Problema\S*\s*:?\s*(.+?)(?:\n\*\*|\n$|\Z)",
             bloco,
-            re.IGNORECASE | re.DOTALL,
+            _re.IGNORECASE | _re.DOTALL,
         )
         if problema_match:
             clausula["problema"] = problema_match.group(1).strip()
 
-        base_match = re.search(
+        base_match = _re.search(
             r"Base\s*[Ll]egal\S*\s*:?\s*(.+?)(?:\n\*\*|\n$|\Z)",
             bloco,
-            re.IGNORECASE | re.DOTALL,
+            _re.IGNORECASE | _re.DOTALL,
         )
         if base_match:
             clausula["base_legal"] = base_match.group(1).strip()
@@ -201,6 +206,108 @@ def get_clausula_padrao(tipo: str) -> Optional[str]:
 def listar_tipos_clausulas() -> List[str]:
     """Lista os tipos de cláusulas disponíveis na biblioteca."""
     return list(CLAUSULAS_PADRAO.keys())
+
+
+def extrair_numeros_riscos(analise_texto: str) -> Dict[str, int]:
+    """
+    Extrai estatísticas de riscos do texto da análise.
+
+    Args:
+        analise_texto: Texto da análise contendo os riscos
+
+    Returns:
+        Dicionário com contagem de riscos por nível
+    """
+    riscos_altos = len(_re.findall(r"🔴\s*RISCO\s*ALTO", analise_texto, _re.IGNORECASE))
+    riscos_medios = len(_re.findall(r"🟠\s*RISCO\s*M[ÉE]DIO", analise_texto, _re.IGNORECASE))
+    riscos_baixos = len(_re.findall(r"🟢\s*RISCO\s*BAIXO|🟢\s*BAIXO", analise_texto, _re.IGNORECASE))
+
+    return {
+        "altos": riscos_altos,
+        "medios": riscos_medios,
+        "baixos": riscos_baixos,
+        "total": riscos_altos + riscos_medios + riscos_baixos,
+    }
+
+
+def extrair_pontos_atencao(analise_texto: str, max_linhas: int = 20) -> str:
+    """
+    Extrai um resumo executivo conciso com os pontos de atenção/riscos.
+    Para cada risco identificado, extrai APENAS cláusula + problema (1 linha),
+    ignorando base legal e sugestão para manter o resumo enxuto.
+
+    Args:
+        analise_texto: Texto completo da análise
+        max_linhas: Número máximo de linhas para retornar
+
+    Returns:
+        Resumo executivo conciso (máx. 20 linhas)
+    """
+    pontos = []
+
+    matches = list(RISCO_BLOCO_PATTERN.finditer(analise_texto))
+
+    if matches:
+        for i, match in enumerate(matches):
+            nivel = match.group(1).upper()
+            emoji = "🔴" if "ALTO" in nivel else ("🟠" if "MÉDIO" in nivel or "MEDIO" in nivel else "🟢")
+
+            start = match.end()
+            end = matches[i + 1].start() if i + 1 < len(matches) else min(len(analise_texto), start + 2000)
+            bloco = analise_texto[start:end]
+
+            clausula_match = _re.search(
+                r"Cl[aá]usula\S*\s*:?\s*(.+?)(?:\n|$)", bloco, _re.IGNORECASE
+            )
+            problema_match = _re.search(
+                r"Problema\S*\s*:?\s*(.+?)(?:\.(?:\s|$))", bloco, _re.IGNORECASE | _re.DOTALL
+            )
+
+            clausula_texto = clausula_match.group(1).strip() if clausula_match else ""
+            problema_texto = problema_match.group(1).strip() if problema_match else ""
+
+            primeira_linha_problema = problema_texto.split(".")[0].strip() if problema_texto else ""
+
+            if clausula_texto and primeira_linha_problema:
+                pontos.append(f"{emoji} **{clausula_texto}**: {primeira_linha_problema[:140]}.")
+            elif clausula_texto:
+                pontos.append(f"{emoji} **{clausula_texto}**")
+            elif primeira_linha_problema:
+                pontos.append(f"{emoji} {primeira_linha_problema[:160]}.")
+
+            if len(pontos) >= max_linhas:
+                break
+
+    if not pontos:
+        linhas = analise_texto.split("\n")
+        em_resumo = False
+        for linha in linhas:
+            if "resumo fiel" in linha.lower() or "resumo executivo" in linha.lower():
+                em_resumo = True
+                continue
+            if em_resumo and (
+                "tópicos" in linha.lower()
+                or "análise de riscos" in linha.lower()
+                or linha.startswith("##")
+                or linha.startswith("###")
+            ):
+                em_resumo = False
+                continue
+            if em_resumo and linha.strip():
+                clean = linha.strip()
+                if any(clean.startswith(p) for p in ["- ", "• ", "* "]):
+                    pontos.append(clean)
+                elif clean and not clean.startswith("#"):
+                    pontos.append(clean)
+                if len(pontos) >= max_linhas:
+                    break
+
+    resumo = "\n".join(pontos[:max_linhas])
+
+    if len(pontos) > max_linhas:
+        resumo += f"\n\n... (mais {len(pontos) - max_linhas} pontos na análise completa)"
+
+    return resumo if resumo else "Nenhum ponto crítico identificado."
 
 
 def comparar_clausulas(

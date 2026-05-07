@@ -2,16 +2,11 @@ import json as _json
 import logging
 import os
 import time
+from pathlib import Path
 from typing import Callable, Generator, Optional
 
 import requests
-from dotenv import load_dotenv
 
-load_dotenv()
-
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
 logger = logging.getLogger(__name__)
 
 try:
@@ -26,14 +21,22 @@ except Exception:
     logger.warning("Config nao carregada, usando modelos padrao")
 
 try:
-    import google.generativeai as genai
+    from google import genai
     GEMINI_AVAILABLE = True
-except ImportError:
+except Exception as import_error:
     GEMINI_AVAILABLE = False
-    logger.warning("google-generativeai nao instalado. Gemini desabilitado.")
+    logger.warning(f"google-genai indisponivel. Gemini desabilitado. Motivo: {import_error}")
 
-with open("SYSTEM_PROMPT.txt", "r", encoding="utf-8") as f:
-    SYSTEM_PROMPT = f.read()
+try:
+    SYSTEM_PROMPT = (Path(__file__).resolve().parent / "SYSTEM_PROMPT.txt").read_text(
+        encoding="utf-8"
+    )
+except Exception as prompt_error:
+    logger.error(f"Falha ao carregar SYSTEM_PROMPT.txt: {prompt_error}")
+    SYSTEM_PROMPT = (
+        "Você é um assistente jurídico especializado em análise de contratos. "
+        "Analise o texto recebido com clareza e objetividade."
+    )
 
 SELECTED_MODEL = "deepseek"
 
@@ -96,14 +99,20 @@ def tentar_deepseek(
     import re as _re
 
     api_key = os.getenv("DEEPSEEK_API_KEY")
+    if api_key:
+        api_key = api_key.strip()
 
     if not api_key:
         logger.error("DEEPSEEK_API_KEY não configurada")
         return "[ERRO] Chave da API DeepSeek não configurada"
 
-    texto_limpo = _re.sub(r'[^\x20-\x7E\u00C0-\u00FF\u0100-\u017F\u2010-\u2050\u2018-\u201D\u2022\u2026\u20A0-\u20CF]', ' ', texto_contrato)
+    logger.info(f"DeepSeek key prefix: {api_key[:10]}... length={len(api_key)}")
+
+    texto_limpo = _re.sub(r'[^\x20-\x7E\u00C0-\u00FF\u0100-\u017F\ufb00-\ufb04\u2010-\u2050\u2018-\u201D\u2022\u2026\u20A0-\u20CF]', ' ', texto_contrato)
     texto_limpo = _re.sub(r'\s{3,}', '\n\n', texto_limpo)
-    texto_limpo = texto_limpo.strip()[:200000]
+    texto_limpo = _re.sub(r'data:image[^;]+;base64,[A-Za-z0-9+/=]+', '[IMAGEM REMOVIDA]', texto_limpo)
+    texto_limpo = _re.sub(r'<img[^>]+>', '[IMAGEM REMOVIDA]', texto_limpo)
+    texto_limpo = texto_limpo.strip()[:150000]
 
     full_prompt = _construir_prompt(texto_limpo)
     tokens_estimados = estimate_tokens(full_prompt)
@@ -225,7 +234,7 @@ def tentar_gemini(
 ) -> str:
     """Tenta analisar o contrato usando a API Gemini com retry automático."""
     if not GEMINI_AVAILABLE:
-        return "[ERRO] google-generativeai não instalado"
+        return "[ERRO] google-genai não instalado"
 
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
@@ -238,38 +247,28 @@ def tentar_gemini(
     for tentativa in range(1, MAX_RETRIES + 1):
         try:
             logger.info(f"Tentativa {tentativa}/{MAX_RETRIES} Gemini")
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel(GEMINI_MODEL)
+            client = genai.Client(api_key=api_key)
 
             if stream_callback:
-                response = model.generate_content(
-                    full_prompt,
-                    request_options={"timeout": TIMEOUT},
-                    generation_config={"temperature": 0.7},
-                    stream=True,
-                )
                 texto_completo = ""
-                for chunk in response:
+                for chunk in client.models.generate_content_stream(
+                    model=GEMINI_MODEL,
+                    contents=full_prompt,
+                    config={"temperature": 0.7},
+                ):
                     if chunk.text:
                         texto_completo += chunk.text
                         stream_callback(chunk.text)
                 logger.info("[OK] Gemini (stream)!")
                 return texto_completo
             else:
-                response = model.generate_content(
-                    full_prompt,
-                    request_options={"timeout": TIMEOUT},
-                    generation_config={"temperature": 0.7},
+                response = client.models.generate_content(
+                    model=GEMINI_MODEL,
+                    contents=full_prompt,
+                    config={"temperature": 0.7},
                 )
                 logger.info("[OK] Gemini!")
                 return response.text
-
-        except requests.exceptions.Timeout:
-            logger.warning(f"Timeout Gemini tentativa {tentativa}")
-            if tentativa < MAX_RETRIES:
-                time.sleep(RETRY_DELAY)
-            else:
-                return f"[ERRO] Timeout Gemini após {MAX_RETRIES} tentativas"
 
         except Exception as e:
             error_type = type(e).__name__
@@ -284,86 +283,6 @@ def tentar_gemini(
     return "[ERRO] Desconhecido Gemini"
 
 
-def tentar_ollama(
-    texto_contrato: str, stream_callback: Optional[Callable[[str], None]] = None
-) -> str:
-    """Tenta analisar o contrato usando Ollama (cloud ou local)."""
-    ollama_url = os.getenv("OLLAMA_API_URL", "https://api.ollama.ai/api/generate")
-    ollama_model = os.getenv("OLLAMA_MODEL", "mistral")
-    ollama_token = os.getenv("OLLAMA_API_KEY")
-
-    full_prompt = _construir_prompt(texto_contrato)
-
-    for tentativa in range(1, MAX_RETRIES + 1):
-        try:
-            logger.info(f"Tentativa {tentativa}/{MAX_RETRIES} Ollama ({ollama_model})")
-            payload = {
-                "model": ollama_model,
-                "prompt": full_prompt,
-                "stream": stream_callback is not None,
-                "temperature": 0.7,
-            }
-            headers = {"Content-Type": "application/json"}
-            if ollama_token:
-                headers["Authorization"] = f"Bearer {ollama_token}"
-
-            if stream_callback:
-                response = requests.post(
-                    ollama_url, json=payload, headers=headers,
-                    timeout=TIMEOUT, stream=True,
-                )
-                if response.status_code == 200:
-                    texto_completo = ""
-                    for line in response.iter_lines(decode_unicode=True):
-                        if line:
-                            try:
-                                data = _json.loads(line)
-                                token = data.get("response", "")
-                                if token:
-                                    texto_completo += token
-                                    stream_callback(token)
-                            except Exception:
-                                continue
-                    logger.info("[OK] Ollama (stream)!")
-                    return texto_completo
-                else:
-                    if tentativa < MAX_RETRIES:
-                        time.sleep(RETRY_DELAY)
-                    else:
-                        return f"[ERRO] Ollama (Status {response.status_code})"
-            else:
-                response = requests.post(
-                    ollama_url, json=payload, headers=headers, timeout=TIMEOUT,
-                )
-                if response.status_code == 200:
-                    result = response.json()
-                    logger.info("[OK] Ollama!")
-                    return result.get("response", "[ERRO] Resposta vazia")
-                else:
-                    if tentativa < MAX_RETRIES:
-                        time.sleep(RETRY_DELAY)
-                    else:
-                        return f"[ERRO] Ollama (Status {response.status_code})"
-
-        except requests.exceptions.ConnectionError:
-            if tentativa < MAX_RETRIES:
-                time.sleep(RETRY_DELAY)
-            else:
-                return "[ERRO] Ollama indisponível"
-        except requests.exceptions.Timeout:
-            if tentativa < MAX_RETRIES:
-                time.sleep(RETRY_DELAY)
-            else:
-                return f"[ERRO] Timeout Ollama após {MAX_RETRIES} tentativas"
-        except Exception as e:
-            if tentativa < MAX_RETRIES:
-                time.sleep(RETRY_DELAY)
-            else:
-                return f"[ERRO] Ollama: {str(e)}"
-
-    return "[ERRO] Desconhecido Ollama"
-
-
 def analisar_contrato(
     texto: str,
     stream_callback: Optional[Callable[[str], None]] = None,
@@ -371,7 +290,7 @@ def analisar_contrato(
 ) -> str:
     """
     Analisa um contrato usando o modelo selecionado, com fallback automático.
-    Ordem de fallback: DeepSeek -> Gemini -> Ollama
+    Ordem de fallback: DeepSeek -> Gemini
     """
     if not texto or not texto.strip():
         return "[ERRO] Texto do contrato vazio"
@@ -385,9 +304,6 @@ def analisar_contrato(
         if resultado.startswith("[ERRO]") and use_fallback:
             logger.info("DeepSeek falhou, fallback para Gemini...")
             resultado = tentar_gemini(texto, stream_callback)
-            if resultado.startswith("[ERRO]") and use_fallback:
-                logger.info("Gemini falhou, fallback para Ollama...")
-                resultado = tentar_ollama(texto, stream_callback)
         return resultado
 
     elif SELECTED_MODEL == "gemini":
@@ -395,19 +311,6 @@ def analisar_contrato(
         if resultado.startswith("[ERRO]") and use_fallback:
             logger.info("Gemini falhou, fallback para DeepSeek...")
             resultado = tentar_deepseek(texto, stream_callback)
-            if resultado.startswith("[ERRO]") and use_fallback:
-                logger.info("DeepSeek falhou, fallback para Ollama...")
-                resultado = tentar_ollama(texto, stream_callback)
-        return resultado
-
-    elif SELECTED_MODEL == "ollama":
-        resultado = tentar_ollama(texto, stream_callback)
-        if resultado.startswith("[ERRO]") and use_fallback:
-            logger.info("Ollama falhou, fallback para DeepSeek...")
-            resultado = tentar_deepseek(texto, stream_callback)
-            if resultado.startswith("[ERRO]") and use_fallback:
-                logger.info("DeepSeek falhou, fallback para Gemini...")
-                resultado = tentar_gemini(texto, stream_callback)
         return resultado
 
     else:
@@ -432,3 +335,45 @@ def analisar_contrato_stream(
     else:
         for chunk in chunks:
             yield chunk
+
+
+def responder_duvida_clausula(duvida: str, contexto_analise: str) -> str:
+    """
+    Usa Gemini para responder dúvidas sobre o contrato analisado.
+
+    Args:
+        duvida: Pergunta do usuário sobre o contrato
+        contexto_analise: Texto da análise do contrato
+
+    Returns:
+        Resposta gerada pela IA
+    """
+    try:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            return "Erro: Chave da API Gemini não configurada. Configure GEMINI_API_KEY no arquivo .env"
+
+        model_name = os.getenv("GEMINI_MODEL", GEMINI_MODEL)
+        client = genai.Client(api_key=api_key)
+
+        prompt = f"""Você é um assistente jurídico especializado em análise de contratos.
+Responda a seguinte dúvida do usuário baseando-se na análise fornecida.
+
+Análise do Contrato:
+{contexto_analise}
+
+Dúvida do usuário:
+{duvida}
+
+Forneça uma resposta clara, objetiva e fundamentada baseada apenas na análise fornecida."""
+
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+        )
+
+        return response.text
+
+    except Exception as e:
+        logger.error(f"Erro ao responder dúvida: {str(e)}")
+        return f"Desculpe, não consegui processar sua pergunta. Erro: {str(e)}"
