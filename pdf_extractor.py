@@ -141,10 +141,25 @@ def _ocr_page_with_api(page) -> str:
         return ""
 
     try:
-        # Renderiza página como imagem
-        pix = page.get_pixmap(dpi=300)
+        # Renderiza página como imagem com DPI reduzido para evitar "413 Payload Too Large"
+        # DPI 150 é suficiente para OCR e mantém tamanho gerenciável
+        pix = page.get_pixmap(dpi=150)
         img_bytes = pix.tobytes("png")
-        img_base64 = base64.b64encode(img_bytes).decode("utf-8")
+        
+        # Comprime imagem PNG para reduzir tamanho do payload
+        from PIL import Image
+        import io
+        
+        img = Image.open(io.BytesIO(img_bytes))
+        
+        # Converte para JPEG com compressão para reduzir tamanho
+        img_buffer = io.BytesIO()
+        img.convert("RGB").save(img_buffer, format="JPEG", quality=85, optimize=True)
+        img_bytes_compressed = img_buffer.getvalue()
+        
+        img_base64 = base64.b64encode(img_bytes_compressed).decode("utf-8")
+        
+        logger.info(f"Imagem página {page.number + 1}: {len(img_base64)} chars base64 (JPEG 85% quality, DPI 150)")
 
         # Chama API OCR.space com multipart/form-data
         url = "https://api.ocr.space/parse/image"
@@ -152,7 +167,7 @@ def _ocr_page_with_api(page) -> str:
             "apikey": _OCR_SPACE_API_KEY,
             "language": "por",
             "isOverlayRequired": "false",
-            "base64Image": f"data:image/png;base64,{img_base64}",
+            "base64Image": f"data:image/jpeg;base64,{img_base64}",
         }
 
         # Usa data (form-encoded) ao invés de json
