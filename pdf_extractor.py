@@ -157,12 +157,23 @@ def _ocr_page_with_api(page) -> str:
 
         # Usa data (form-encoded) ao invés de json
         response = requests.post(url, data=payload, timeout=60)
+        
+        # Log detalhado da resposta para debug
+        logger.info(f"OCR.space response status: {response.status_code}")
+        
         response.raise_for_status()
         result = response.json()
+        
+        # Log completo da resposta para diagnóstico
+        logger.info(f"OCR.space response: IsErrored={result.get('IsErroredOnProcessing')}, "
+                   f"OCRExitCode={result.get('OCRExitCode')}, "
+                   f"ProcessingTime={result.get('ProcessingTimeInMilliseconds')}ms")
 
         if result.get("IsErroredOnProcessing"):
-            error_msg = result.get("ErrorMessage", ["Erro desconhecido"])[0]
-            logger.warning(
+            error_msg = result.get("ErrorMessage", ["Erro desconhecido"])
+            if isinstance(error_msg, list):
+                error_msg = error_msg[0] if error_msg else "Erro desconhecido"
+            logger.error(
                 f"OCR.space erro na página {page.number + 1}: {error_msg}"
             )
             return ""
@@ -170,20 +181,23 @@ def _ocr_page_with_api(page) -> str:
         parsed_results = result.get("ParsedResults", [])
         if not parsed_results:
             logger.warning(f"OCR.space sem resultado para página {page.number + 1}")
+            logger.warning(f"Response completa: {result}")
             return ""
 
         text = parsed_results[0].get("ParsedText", "").strip()
         logger.info(
-            f"OCR.space aplicado na página {page.number + 1} "
-            f"({len(text)} caracteres extraídos)"
+            f"OCR.space sucesso na página {page.number + 1}: "
+            f"{len(text)} caracteres extraídos"
         )
         return text
 
     except requests.exceptions.RequestException as e:
-        logger.warning(f"Erro de rede ao chamar OCR.space na página {page.number + 1}: {str(e)}")
+        logger.error(f"Erro de rede ao chamar OCR.space na página {page.number + 1}: {str(e)}")
         return ""
     except Exception as e:
-        logger.warning(f"Erro ao aplicar OCR API na página {page.number + 1}: {str(e)}")
+        logger.error(f"Erro ao aplicar OCR API na página {page.number + 1}: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return ""
 
 
