@@ -80,7 +80,6 @@ def show_profile():
                         )
                         if success:
                             st.success(f"✅ {message}")
-                            st.balloons()
                             st.info("💡 **Sua senha foi alterada!** Por segurança, faça login novamente.")
                             # Usar flag para fazer logout (não pode usar st.button dentro do form)
                             st.session_state.password_changed = True

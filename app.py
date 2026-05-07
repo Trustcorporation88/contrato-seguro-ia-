@@ -136,16 +136,17 @@ st.markdown(
         background-color: #5DADE2 !important;  /* Azul mais claro */
         color: white !important;
         border: none !important;
-        border-radius: 4px !important;
-        padding: 0.5rem 0.8rem !important;  /* Reduzido para botões menores */
+        border-radius: 8px !important;  /* Mais arredondado para ícones */
+        padding: 0.6rem !important;  /* Padding uniforme para ícones */
         font-weight: 600 !important;
-        font-size: 0.9rem !important;  /* Fonte um pouco menor */
-        letter-spacing: 0.3px !important;
+        font-size: 1.3rem !important;  /* Ícones maiores */
+        letter-spacing: 0px !important;
         transition: all 0.3s ease !important;
         box-shadow: 0 2px 6px rgba(93,173,226,0.2) !important;
-        white-space: nowrap !important;  /* Impedir quebra de linha */
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
+        min-height: 45px !important;  /* Altura mínima */
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
     }
 
     .stButton > button[kind="primary"] {
@@ -554,14 +555,14 @@ with st.sidebar:
         f'</div>',
         unsafe_allow_html=True,
     )
-    # Botões da sidebar - ajustar colunas baseado no role
+    # Botões da sidebar - usar apenas ícones para economizar espaço
     if user.get("role") == "admin":
         col_btn1, col_btn2, col_btn3 = st.columns(3)
     else:
         col_btn1, col_btn2 = st.columns(2)
     
     with col_btn1:
-        if st.button("🚪 Sair", use_container_width=True):
+        if st.button("🚪", use_container_width=True, help="Sair"):
             st.session_state.authenticated_user = None
             st.session_state.show_admin = False
             st.session_state.show_profile = False
@@ -569,7 +570,7 @@ with st.sidebar:
     
     with col_btn2:
         # Botão Minha Conta (todos os usuários)
-        if st.button("🔐 Conta", use_container_width=True):
+        if st.button("🔐", use_container_width=True, help="Minha Conta"):
             st.session_state.show_profile = not st.session_state.get("show_profile", False)
             st.session_state.show_admin = False  # Fechar admin se estiver aberto
             st.rerun()
@@ -577,7 +578,7 @@ with st.sidebar:
     # Botão Admin (apenas para admins)
     if user.get("role") == "admin":
         with col_btn3:
-            if st.button("📊 Admin", use_container_width=True):
+            if st.button("📊", use_container_width=True, help="Admin"):
                 st.session_state.show_admin = not st.session_state.get("show_admin", False)
                 st.session_state.show_profile = False  # Fechar perfil se estiver aberto
                 st.rerun()
