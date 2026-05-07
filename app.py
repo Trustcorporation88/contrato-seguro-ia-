@@ -137,11 +137,15 @@ st.markdown(
         color: white !important;
         border: none !important;
         border-radius: 4px !important;
-        padding: 0.75rem 1.5rem !important;
+        padding: 0.5rem 0.8rem !important;  /* Reduzido para botões menores */
         font-weight: 600 !important;
-        letter-spacing: 0.5px !important;
+        font-size: 0.9rem !important;  /* Fonte um pouco menor */
+        letter-spacing: 0.3px !important;
         transition: all 0.3s ease !important;
         box-shadow: 0 2px 6px rgba(93,173,226,0.2) !important;
+        white-space: nowrap !important;  /* Impedir quebra de linha */
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
     }
 
     .stButton > button[kind="primary"] {

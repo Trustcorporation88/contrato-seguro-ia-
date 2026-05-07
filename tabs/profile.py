@@ -6,6 +6,13 @@ def show_profile():
     Exibe a página de perfil do usuário com opção de trocar senha.
     Disponível para TODOS os usuários (não apenas admins).
     """
+    # Verificar se senha foi alterada e fazer logout automático
+    if st.session_state.get("password_changed", False):
+        st.session_state.authenticated_user = None
+        st.session_state.show_profile = False
+        st.session_state.password_changed = False
+        st.rerun()
+    
     user = st.session_state.get("authenticated_user", {})
     username = user.get("username", "")
     email = user.get("email", "")
@@ -75,12 +82,8 @@ def show_profile():
                             st.success(f"✅ {message}")
                             st.balloons()
                             st.info("💡 **Sua senha foi alterada!** Por segurança, faça login novamente.")
-                            
-                            # Botão para fazer logout
-                            if st.button("🚪 Fazer Login Novamente"):
-                                st.session_state.authenticated_user = None
-                                st.session_state.show_profile = False
-                                st.rerun()
+                            # Usar flag para fazer logout (não pode usar st.button dentro do form)
+                            st.session_state.password_changed = True
                         else:
                             st.error(f"❌ {message}")
                     else:
