@@ -1,0 +1,14 @@
+.git
+.gitignore
+.venv
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+cache/
+logs/
+temp/
+cache_test/
+.streamlit/secrets.toml
+importtime.log

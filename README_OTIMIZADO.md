@@ -136,11 +136,11 @@ A aplicação abrirá em `http://localhost:8501`
 
 ## Render
 
-O projeto está pronto para deploy no Render com o arquivo `render.yaml`.
+O projeto está pronto para deploy no Render com `render.yaml` e `Dockerfile`.
 
 ### Start da aplicação
 
-O comando de inicialização usa `python run_app.py`, que agora respeita:
+O container inicia com `python run_app.py`, que respeita:
 
 ```bash
 PORT=<porta do ambiente>
@@ -149,14 +149,14 @@ STREAMLIT_SERVER_ADDRESS=0.0.0.0
 
 ### Dependências de OCR
 
-O `render.yaml` instala também:
+O `Dockerfile` instala:
 
 ```bash
 tesseract-ocr
 tesseract-ocr-por
 ```
 
-Isso mantém a leitura de PDFs escaneados funcionando no servidor.
+Isso mantém a leitura de PDFs escaneados funcionando no servidor de forma confiável.
 
 ### Variáveis obrigatórias no Render
 
