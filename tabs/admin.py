@@ -1,6 +1,6 @@
 """
 admin.py - Dashboard Administrativo de Analytics
-Monitora logins e uso do sistema.
+Monitora logins, uso do sistema e gerenciamento de usuários.
 """
 
 import json
@@ -276,6 +276,47 @@ def render_admin_tab():
         st.line_chart(df_chart.set_index("Data"))
     else:
         st.info("📭 Nenhum login nos últimos 7 dias.")
+    
+    st.markdown("---")
+    
+    # ================================================================
+    # GERENCIAMENTO DE CONTA
+    # ================================================================
+    
+    st.subheader("🔐 Gerenciamento de Conta")
+    
+    with st.expander("🔑 Alterar Minha Senha", expanded=False):
+        st.markdown("**Altere sua senha de administrador:**")
+        
+        current_username = st.session_state.get("user", {}).get("username", "")
+        
+        with st.form("change_password_form"):
+            old_password = st.text_input("Senha Atual", type="password")
+            new_password = st.text_input("Nova Senha", type="password")
+            confirm_password = st.text_input("Confirmar Nova Senha", type="password")
+            
+            submit_password = st.form_submit_button("🔄 Alterar Senha")
+            
+            if submit_password:
+                if not old_password or not new_password or not confirm_password:
+                    st.error("❌ Preencha todos os campos.")
+                elif new_password != confirm_password:
+                    st.error("❌ As senhas não coincidem.")
+                elif len(new_password) < 6:
+                    st.error("❌ A nova senha deve ter no mínimo 6 caracteres.")
+                else:
+                    auth_service = st.session_state.get("auth_service")
+                    if auth_service:
+                        success, message = auth_service.change_password(
+                            current_username, old_password, new_password
+                        )
+                        if success:
+                            st.success(f"✅ {message}")
+                            st.info("💡 Faça login novamente com a nova senha.")
+                        else:
+                            st.error(f"❌ {message}")
+                    else:
+                        st.error("❌ Erro ao acessar serviço de autenticação.")
     
     st.markdown("---")
     
