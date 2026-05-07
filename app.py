@@ -550,17 +550,32 @@ with st.sidebar:
         f'</div>',
         unsafe_allow_html=True,
     )
-    col_btn1, col_btn2 = st.columns(2)
+    # Botões da sidebar - ajustar colunas baseado no role
+    if user.get("role") == "admin":
+        col_btn1, col_btn2, col_btn3 = st.columns(3)
+    else:
+        col_btn1, col_btn2 = st.columns(2)
+    
     with col_btn1:
         if st.button("🚪 Sair", use_container_width=True):
             st.session_state.authenticated_user = None
+            st.session_state.show_admin = False
+            st.session_state.show_profile = False
             st.rerun()
     
     with col_btn2:
-        # Botão Admin (apenas para admins)
-        if user.get("role") == "admin":
+        # Botão Minha Conta (todos os usuários)
+        if st.button("🔐 Conta", use_container_width=True):
+            st.session_state.show_profile = not st.session_state.get("show_profile", False)
+            st.session_state.show_admin = False  # Fechar admin se estiver aberto
+            st.rerun()
+    
+    # Botão Admin (apenas para admins)
+    if user.get("role") == "admin":
+        with col_btn3:
             if st.button("📊 Admin", use_container_width=True):
                 st.session_state.show_admin = not st.session_state.get("show_admin", False)
+                st.session_state.show_profile = False  # Fechar perfil se estiver aberto
                 st.rerun()
 
     st.markdown("---")
@@ -734,6 +749,23 @@ st.divider()
 
 # ================================================================
 # PAINEL ADMINISTRATIVO COMPLETO (SE ATIVADO)
+# ================================================================
+
+# ================================================================
+# PAINEL DE PERFIL (todos os usuários)
+# ================================================================
+
+if st.session_state.get("show_profile", False):
+    from tabs.profile import show_profile
+    show_profile()
+    st.markdown("---")
+    if st.button("🔙 Voltar para Análise"):
+        st.session_state.show_profile = False
+        st.rerun()
+    st.stop()  # Para exibição para não mostrar upload/análise
+
+# ================================================================
+# PAINEL ADMIN (apenas admins)
 # ================================================================
 
 if st.session_state.get("show_admin", False):
