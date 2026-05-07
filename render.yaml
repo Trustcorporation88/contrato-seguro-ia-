@@ -9,6 +9,8 @@ services:
     envVars:
       - key: STREAMLIT_SERVER_ADDRESS
         value: 0.0.0.0
+      - key: STREAMLIT_SERVER_PORT
+        value: 8501
       - key: GOOGLE_REDIRECT_URI
         value: https://jus.trustcorp.com.br
       - key: DEEPSEEK_API_KEY
