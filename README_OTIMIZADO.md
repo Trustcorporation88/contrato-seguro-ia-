@@ -134,6 +134,46 @@ A aplicação abrirá em `http://localhost:8501`
 
 ---
 
+## Render
+
+O projeto está pronto para deploy no Render com o arquivo `render.yaml`.
+
+### Start da aplicação
+
+O comando de inicialização usa `python run_app.py`, que agora respeita:
+
+```bash
+PORT=<porta do ambiente>
+STREAMLIT_SERVER_ADDRESS=0.0.0.0
+```
+
+### Dependências de OCR
+
+O `render.yaml` instala também:
+
+```bash
+tesseract-ocr
+tesseract-ocr-por
+```
+
+Isso mantém a leitura de PDFs escaneados funcionando no servidor.
+
+### Variáveis obrigatórias no Render
+
+Configure no painel do Render ou via Blueprint:
+
+```env
+DEEPSEEK_API_KEY=
+GEMINI_API_KEY=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=https://jus.trustcorp.com.br
+```
+
+Se usar integrações adicionais, configure também as variáveis de WhatsApp e SMTP.
+
+---
+
 ## 📁 Estrutura do Projeto
 
 ```

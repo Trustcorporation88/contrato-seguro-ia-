@@ -1,14 +1,32 @@
 import logging
+import os
+import re
 from io import BytesIO
 from typing import Dict, Optional, Tuple
 
 import fitz  # PyMuPDF
 
 logger = logging.getLogger(__name__)
+_OCR_LANGUAGES = tuple(
+    lang.strip()
+    for lang in os.getenv("OCR_LANGUAGES", "por,por+eng,eng").split(",")
+    if lang.strip()
+)
+_WORD_PATTERN = re.compile(r"[0-9A-Za-zÀ-ÿ]{2,}")
 
 try:
     import pytesseract
     from PIL import Image
+
+    _TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    if os.path.exists(_TESSERACT_PATH):
+        pytesseract.pytesseract.tesseract_cmd = _TESSERACT_PATH
+
+    _TESSDATA_USER = os.path.join(
+        os.environ.get("LOCALAPPDATA", ""), r"Tesseract-OCR\tessdata"
+    )
+    if os.path.isdir(_TESSDATA_USER) and os.listdir(_TESSDATA_USER):
+        os.environ["TESSDATA_PREFIX"] = _TESSDATA_USER
 
     OCR_AVAILABLE = True
 except ImportError:
@@ -16,10 +34,42 @@ except ImportError:
     logger.info("pytesseract/Pillow não instalados. OCR desabilitado.")
 
 
-def _page_has_text(page) -> bool:
-    """Verifica se uma página tem texto extraível diretamente."""
-    text = page.get_text("text")
-    return len(text.strip()) > 20
+def _normalize_text(text: str) -> str:
+    """Normaliza espaços para comparar qualidade do texto extraído."""
+    return re.sub(r"\s+", " ", text or "").strip()
+
+
+def _text_quality_score(text: str) -> float:
+    """Calcula uma pontuação simples de legibilidade do texto."""
+    normalized = _normalize_text(text)
+    if not normalized:
+        return 0.0
+
+    words = _WORD_PATTERN.findall(normalized)
+    long_words = [word for word in words if len(word) >= 4]
+    alnum_chars = sum(char.isalnum() for char in normalized)
+
+    return (
+        len(normalized)
+        + (len(words) * 12)
+        + (len(long_words) * 8)
+        + (alnum_chars * 0.5)
+    )
+
+
+def _page_has_usable_text(text: str) -> bool:
+    """Verifica se o texto extraído da página parece aproveitável."""
+    normalized = _normalize_text(text)
+    if len(normalized) < 40:
+        return False
+
+    words = _WORD_PATTERN.findall(normalized)
+    if len(words) < 6:
+        return False
+
+    alnum_chars = sum(char.isalnum() for char in normalized)
+    alnum_ratio = alnum_chars / len(normalized)
+    return alnum_ratio >= 0.45
 
 
 def _ocr_page(page) -> str:
@@ -38,11 +88,65 @@ def _ocr_page(page) -> str:
     try:
         pix = page.get_pixmap(dpi=300)
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        texto = pytesseract.image_to_string(img, lang="por")
-        return texto.strip() or ""
+        best_text = ""
+        best_lang = None
+
+        for lang in _OCR_LANGUAGES:
+            try:
+                texto = pytesseract.image_to_string(img, lang=lang).strip()
+            except pytesseract.TesseractError as lang_error:
+                logger.warning(
+                    f"OCR falhou na página {page.number + 1} com idioma '{lang}': {str(lang_error)}"
+                )
+                continue
+
+            if _text_quality_score(texto) > _text_quality_score(best_text):
+                best_text = texto
+                best_lang = lang
+
+        if best_text and best_lang:
+            logger.info(
+                f"OCR selecionou idioma '{best_lang}' para a página {page.number + 1}"
+            )
+
+        return best_text
     except Exception as e:
         logger.warning(f"Erro ao aplicar OCR na página {page.number + 1}: {str(e)}")
         return ""
+
+
+def _extract_page_text(page, enable_ocr: bool) -> Tuple[str, bool]:
+    """
+    Extrai o melhor texto possível da página.
+
+    PDFs escaneados às vezes possuem uma camada de texto ruim o bastante para
+    impedir a análise, então o OCR é tentado quando a extração direta parece
+    pouco aproveitável.
+    """
+    direct_text = page.get_text("text").strip()
+    direct_score = _text_quality_score(direct_text)
+    direct_usable = _page_has_usable_text(direct_text)
+
+    if direct_usable or not enable_ocr or not OCR_AVAILABLE:
+        return direct_text, False
+
+    ocr_text = _ocr_page(page)
+    ocr_score = _text_quality_score(ocr_text)
+
+    if ocr_score > direct_score:
+        logger.info(
+            f"Página {page.number + 1}: OCR substituiu texto direto "
+            f"(score direto={direct_score:.1f}, OCR={ocr_score:.1f})"
+        )
+        return ocr_text, True
+
+    if direct_text:
+        logger.info(
+            f"Página {page.number + 1}: mantendo texto direto apesar do OCR "
+            f"(score direto={direct_score:.1f}, OCR={ocr_score:.1f})"
+        )
+
+    return direct_text, False
 
 
 def extrair_texto_pdf_bytes(
@@ -74,25 +178,25 @@ def extrair_texto_pdf_bytes(
 
         for page_num, page in enumerate(doc, 1):
             try:
-                has_text = _page_has_text(page)
+                page_text, used_ocr = _extract_page_text(page, enable_ocr=enable_ocr)
 
-                if has_text:
-                    page_text = page.get_text("text")
-                    if page_text:
-                        texto += page_text + "\n"
-                elif enable_ocr and OCR_AVAILABLE:
-                    ocr_text = _ocr_page(page)
-                    if ocr_text:
-                        texto += ocr_text + "\n"
-                        pages_with_ocr += 1
-                        logger.info(f"OCR aplicado na página {page_num}")
-                elif not has_text and enable_ocr and not OCR_AVAILABLE:
+                if page_text:
+                    texto += page_text + "\n"
+
+                if used_ocr:
+                    pages_with_ocr += 1
+                    logger.info(f"OCR aplicado na página {page_num}")
+                elif not page_text and enable_ocr and not OCR_AVAILABLE:
                     logger.warning(
                         f"Página {page_num} sem texto extraível e OCR indisponível"
                     )
-                elif not has_text:
+                elif not page_text and enable_ocr:
+                    logger.warning(
+                        f"Página {page_num} sem texto aproveitável mesmo após OCR"
+                    )
+                elif not page_text:
                     logger.info(
-                        f"Página {page_num} sem texto extraível (OCR desabilitado)"
+                        f"Página {page_num} sem texto aproveitável (OCR desabilitado)"
                     )
             except Exception as page_error:
                 logger.warning(

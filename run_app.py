@@ -10,6 +10,26 @@ import subprocess
 import sys
 
 
+def build_streamlit_command():
+    """Monta o comando de inicialização compatível com ambientes locais e PaaS."""
+    port = os.getenv("PORT", "8501").strip() or "8501"
+    address = os.getenv("STREAMLIT_SERVER_ADDRESS", "0.0.0.0").strip() or "0.0.0.0"
+
+    return [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        "app.py",
+        "--server.address",
+        address,
+        "--server.port",
+        port,
+        "--server.headless",
+        "true",
+    ]
+
+
 def main():
     """Executa a aplicação Streamlit"""
 
@@ -24,7 +44,7 @@ def main():
 
     # Executar streamlit
     try:
-        cmd = [sys.executable, "-m", "streamlit", "run", "app.py"]
+        cmd = build_streamlit_command()
         print(f"Executando: {' '.join(cmd)}\n")
         subprocess.run(cmd, check=True)
     except FileNotFoundError:

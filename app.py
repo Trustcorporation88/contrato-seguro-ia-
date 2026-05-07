@@ -1,40 +1,23 @@
 # ================================================================
 # CONTRATO SEGURO IA - Aplicação Principal
 # ================================================================
-# Análise inteligente de contratos usando Gemini/Ollama
+# Análise inteligente de contratos usando Gemini/DeepSeek
 # ================================================================
 
-import io
 import logging
-import re
+import time
 from io import BytesIO
 from pathlib import Path
-from urllib.parse import quote
 
 # Importações para processamento
-import google.generativeai as genai
 import streamlit as st
-from docx import Document
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Inches, Pt, RGBColor
 from dotenv import load_dotenv
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.lib.units import cm
-from reportlab.platypus import (
-    PageBreak,
-    Paragraph,
-    SimpleDocTemplate,
-    Spacer,
-    Table,
-    TableStyle,
-)
 
 # Importações do projeto
-from analyzer import SELECTED_MODEL, analisar_contrato, set_model, set_fallback
+from analyzer import SELECTED_MODEL, analisar_contrato, set_model, set_fallback, responder_duvida_clausula
 from auth_service import AuthService
 from cache_manager import CacheManager
+from clause_service import extrair_numeros_riscos, extrair_pontos_atencao
 from config import load_env_config
 from database_service import DatabaseService
 from pdf_extractor import extrair_metadados_pdf, extrair_texto_pdf_bytes
@@ -44,12 +27,11 @@ from pdf_extractor import extrair_metadados_pdf, extrair_texto_pdf_bytes
 # ================================================================
 
 # Carregar variáveis de ambiente
-load_dotenv()
+load_dotenv(override=True)
 
-# Configurar logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+# Configurar logging centralizado
+from config import setup_logging
+setup_logging()
 logger = logging.getLogger(__name__)
 
 # ================================================================
@@ -312,17 +294,21 @@ if st.session_state.authenticated_user is None:
 
     # Google OAuth callback
     query_params = st.query_params
-    if "code" in query_params and "state" not in query_params:
+    google_oauth_url = st.session_state.get("pending_google_oauth_url", "")
+    if "code" in query_params:
         code = query_params["code"]
-        redirect_uri = query_params.get("redirect_uri", "http://localhost:8502")
+        redirect_uri = st.session_state.auth_service.resolve_google_redirect_uri()
+
         ok, msg, user_data = st.session_state.auth_service.google_callback(code, redirect_uri)
         if ok:
             st.session_state.authenticated_user = user_data
+            st.session_state.pending_google_oauth_url = ""
             st.session_state.db_service.log_acceptance(user_data["username"])
             st.query_params.clear()
             st.rerun()
         else:
             st.error(f"Erro no login Google: {msg}")
+            st.session_state.pending_google_oauth_url = ""
             st.query_params.clear()
 
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -377,20 +363,25 @@ if st.session_state.authenticated_user is None:
                 if not aceite:
                     st.error("É necessário aceitar os termos de uso para acessar o sistema.")
                 else:
-                    redirect_uri = "http://localhost:8502"
+                    redirect_uri = st.session_state.auth_service.resolve_google_redirect_uri()
                     google_url = st.session_state.auth_service.google_login_url(redirect_uri)
                     if google_url:
-                        st.markdown(
-                            f'<meta http-equiv="refresh" content="0; url={google_url}">'
-                            f'<a href="{google_url}" target="_self">'
-                            '<button style="width: 100%; padding: 0.75rem; background-color: #4285F4; '
-                            'color: white; border: none; border-radius: 0.4rem; cursor: pointer; '
-                            'font-weight: bold;">Redirecionando para Google...</button></a>',
-                            unsafe_allow_html=True,
-                        )
-                        st.stop()
+                        st.session_state.pending_google_oauth_url = google_url
+                        google_oauth_url = google_url
                     else:
-                        st.error("Google OAuth não configurado. Configure GOOGLE_CLIENT_ID no .env")
+                        st.info("Google OAuth não configurado. Use login com usuário e senha.")
+
+        if google_oauth_url:
+            st.link_button(
+                "Continuar com Google",
+                url=google_oauth_url,
+                use_container_width=True,
+            )
+            st.markdown(
+                f'<meta http-equiv="refresh" content="0; url={google_oauth_url}">',
+                unsafe_allow_html=True,
+            )
+            st.caption("Se o redirecionamento automático não abrir, use o botão acima.")
 
         st.caption("Usuário padrão: admin / admin123")
 
@@ -436,401 +427,6 @@ def limpar_analise():
     st.session_state.analise_resultado = ""
     st.session_state.chat_messages = []
     logger.info("Análise limpa do session state")
-
-
-def extrair_numeros_riscos(analise_texto: str) -> dict:
-    """
-    Extrai estatísticas de riscos do texto da análise.
-
-    Args:
-        analise_texto: Texto da análise contendo os riscos
-
-    Returns:
-        Dicionário com contagem de riscos por nível
-    """
-    riscos_altos = len(re.findall(r"🔴\s*RISCO\s*ALTO", analise_texto, re.IGNORECASE))
-    riscos_medios = len(
-        re.findall(r"🟠\s*RISCO\s*M[ÉE]DIO", analise_texto, re.IGNORECASE)
-    )
-    riscos_baixos = len(
-        re.findall(r"🟢\s*RISCO\s*BAIXO|🟢\s*BAIXO", analise_texto, re.IGNORECASE)
-    )
-
-    return {
-        "altos": riscos_altos,
-        "medios": riscos_medios,
-        "baixos": riscos_baixos,
-        "total": riscos_altos + riscos_medios + riscos_baixos,
-    }
-
-
-def exibir_estatisticas(analise_texto: str):
-    """
-    Exibe métricas e estatísticas de risco em formato visual.
-
-    Args:
-        analise_texto: Texto da análise para extrair estatísticas
-    """
-    riscos = extrair_numeros_riscos(analise_texto)
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        st.metric("🔴 Riscos Altos", riscos["altos"])
-
-    with col2:
-        st.metric("🟠 Riscos Médios", riscos["medios"])
-
-    with col3:
-        st.metric("🟢 Riscos Baixos", riscos["baixos"])
-
-    with col4:
-        st.metric("📊 Total de Riscos", riscos["total"])
-
-    # Barra de progresso de risco
-    st.subheader("Índice de Risco Geral")
-
-    if riscos["total"] > 0:
-        percentual_alto = (riscos["altos"] / riscos["total"]) * 100
-        percentual_medio = (riscos["medios"] / riscos["total"]) * 100
-        percentual_baixo = (riscos["baixos"] / riscos["total"]) * 100
-
-        st.write(f"**Composição de Riscos:**")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.write(f"🔴 Altos: {percentual_alto:.1f}%")
-        with col2:
-            st.write(f"🟠 Médios: {percentual_medio:.1f}%")
-        with col3:
-            st.write(f"🟢 Baixos: {percentual_baixo:.1f}%")
-
-        # Avaliação geral
-        if percentual_alto > 20:
-            st.warning(
-                "⚠️ Contrato com alto nível de risco. Recomenda-se revisão completa antes de assinar."
-            )
-        elif percentual_medio > 30:
-            st.info("ℹ️ Contrato com riscos moderados. Negociar pontos identificados.")
-        else:
-            st.success(
-                "✅ Contrato com risco controlado. Pontos de atenção estão marcados."
-            )
-    else:
-        st.info("Nenhum risco identificado na análise.")
-
-
-def extrair_pontos_atencao(analise_texto: str, max_linhas: int = 20) -> str:
-    """
-    Extrai um resumo executivo conciso com os pontos de atenção/riscos.
-    Para cada risco identificado, extrai APENAS cláusula + problema (1 linha),
-    ignorando base legal e sugestão para manter o resumo enxuto.
-
-    Args:
-        analise_texto: Texto completo da análise
-        max_linhas: Número máximo de linhas para retornar
-
-    Returns:
-        Resumo executivo conciso (máx. 20 linhas)
-    """
-    import re
-
-    pontos = []
-
-    # Padrão para detectar cada bloco de risco
-    bloco_pattern = re.compile(
-        r"\*\*[🔴🟠🟢]\s*RISCO\s*(ALTO|M[ÉE]DIO|BAIXO)\*\*",
-        re.IGNORECASE,
-    )
-
-    matches = list(bloco_pattern.finditer(analise_texto))
-
-    if matches:
-        for i, match in enumerate(matches):
-            nivel = match.group(1).upper()
-            emoji = "🔴" if "ALTO" in nivel else ("🟠" if "MÉDIO" in nivel or "MEDIO" in nivel else "🟢")
-
-            start = match.end()
-            end = matches[i + 1].start() if i + 1 < len(matches) else min(len(analise_texto), start + 2000)
-            bloco = analise_texto[start:end]
-
-            clausula_match = re.search(
-                r"Cl[aá]usula\S*\s*:?\s*(.+?)(?:\n|$)", bloco, re.IGNORECASE
-            )
-            problema_match = re.search(
-                r"Problema\S*\s*:?\s*(.+?)(?:\.(?:\s|$))", bloco, re.IGNORECASE | re.DOTALL
-            )
-
-            clausula_texto = clausula_match.group(1).strip() if clausula_match else ""
-            problema_texto = problema_match.group(1).strip() if problema_match else ""
-
-            primeira_linha_problema = problema_texto.split(".")[0].strip() if problema_texto else ""
-
-            if clausula_texto and primeira_linha_problema:
-                pontos.append(f"{emoji} **{clausula_texto}**: {primeira_linha_problema[:140]}.")
-            elif clausula_texto:
-                pontos.append(f"{emoji} **{clausula_texto}**")
-            elif primeira_linha_problema:
-                pontos.append(f"{emoji} {primeira_linha_problema[:160]}.")
-
-            if len(pontos) >= max_linhas:
-                break
-
-    if not pontos:
-        # Fallback: extrair linhas relevantes do texto
-        linhas = analise_texto.split("\n")
-        em_resumo = False
-        for linha in linhas:
-            if "resumo fiel" in linha.lower() or "resumo executivo" in linha.lower():
-                em_resumo = True
-                continue
-            if em_resumo and (
-                "tópicos" in linha.lower()
-                or "análise de riscos" in linha.lower()
-                or linha.startswith("##")
-                or linha.startswith("###")
-            ):
-                em_resumo = False
-                continue
-            if em_resumo and linha.strip():
-                clean = linha.strip()
-                if any(clean.startswith(p) for p in ["- ", "• ", "* "]):
-                    pontos.append(clean)
-                elif clean and not clean.startswith("#"):
-                    pontos.append(clean)
-                if len(pontos) >= max_linhas:
-                    break
-
-    resumo = "\n".join(pontos[:max_linhas])
-
-    if len(pontos) > max_linhas:
-        resumo += f"\n\n... (mais {len(pontos) - max_linhas} pontos na análise completa)"
-
-    return resumo if resumo else "Nenhum ponto crítico identificado."
-
-
-def gerar_pdf(analise_texto: str, nome_arquivo: str = "analise_contrato") -> BytesIO:
-    """
-    Gera um arquivo PDF com a análise do contrato.
-
-    Args:
-        analise_texto: Texto da análise para incluir no PDF
-        nome_arquivo: Nome base do arquivo (sem extensão)
-
-    Returns:
-        BytesIO contendo o PDF gerado
-    """
-    try:
-        # Criar buffer em memória
-        buffer = BytesIO()
-
-        # Criar documento PDF
-        doc = SimpleDocTemplate(
-            buffer,
-            pagesize=A4,
-            rightMargin=1 * cm,
-            leftMargin=1 * cm,
-            topMargin=1.5 * cm,
-            bottomMargin=1 * cm,
-        )
-
-        # Obter estilos
-        styles = getSampleStyleSheet()
-
-        # Criar estilos customizados
-        titulo_style = ParagraphStyle(
-            "CustomTitle",
-            parent=styles["Heading1"],
-            fontSize=18,
-            textColor=colors.HexColor("#1a237e"),
-            spaceAfter=12,
-            alignment=1,  # Center
-        )
-
-        heading_style = ParagraphStyle(
-            "CustomHeading",
-            parent=styles["Heading2"],
-            fontSize=12,
-            textColor=colors.HexColor("#283593"),
-            spaceAfter=8,
-            spaceBefore=8,
-        )
-
-        body_style = ParagraphStyle(
-            "CustomBody",
-            parent=styles["BodyText"],
-            fontSize=10,
-            alignment=4,  # Justify
-        )
-
-        # Montar conteúdo
-        content = []
-
-        # Título
-        content.append(Paragraph("ANÁLISE DE CONTRATO", titulo_style))
-        content.append(
-            Paragraph(f"<font size=9>{nome_arquivo}</font>", styles["Normal"])
-        )
-        content.append(Spacer(1, 0.5 * cm))
-
-        # Análise (quebra de parágrafos)
-        for paragrafo in analise_texto.split("\n"):
-            if paragrafo.strip():
-                # Detectar nível de heading
-                if paragrafo.startswith("# "):
-                    content.append(
-                        Paragraph(paragrafo.replace("# ", ""), heading_style)
-                    )
-                elif paragrafo.startswith("## "):
-                    content.append(
-                        Paragraph(paragrafo.replace("## ", ""), heading_style)
-                    )
-                else:
-                    content.append(Paragraph(paragrafo, body_style))
-                content.append(Spacer(1, 0.2 * cm))
-
-        # Rodapé com informações
-        content.append(Spacer(1, 0.5 * cm))
-        content.append(
-            Paragraph(
-                "<font size=8><i>Documento gerado pela plataforma TRUST CORPORATION - Contrato Seguro IA</i></font>",
-                styles["Normal"],
-            )
-        )
-
-        # Compilar PDF
-        doc.build(content)
-        buffer.seek(0)
-
-        return buffer
-
-    except Exception as e:
-        logger.error(f"Erro ao gerar PDF: {str(e)}")
-        raise
-
-
-def gerar_word(analise_texto: str, nome_arquivo: str = "analise_contrato") -> BytesIO:
-    """
-    Gera um arquivo Word (.docx) com a análise do contrato.
-
-    Args:
-        analise_texto: Texto da análise para incluir no documento
-        nome_arquivo: Nome base do arquivo (sem extensão)
-
-    Returns:
-        BytesIO contendo o documento Word gerado
-    """
-    try:
-        # Criar documento
-        doc = Document()
-
-        # Configurar fonte padrão
-        style = doc.styles["Normal"]
-        style.font.name = "Calibri"
-        style.font.size = Pt(11)
-
-        # Título
-        titulo = doc.add_heading("ANÁLISE DE CONTRATO", level=1)
-        titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-        # Subtítulo com nome do arquivo
-        subtitulo = doc.add_paragraph(nome_arquivo)
-        subtitulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        subtitulo_format = subtitulo.runs[0]
-        subtitulo_format.italic = True
-        subtitulo_format.font.size = Pt(9)
-
-        # Adicionar linha em branco
-        doc.add_paragraph()
-
-        # Processar análise linha por linha
-        for linha in analise_texto.split("\n"):
-            if not linha.strip():
-                continue
-
-            # Detectar heading (Markdown style)
-            if linha.startswith("# "):
-                p = doc.add_heading(linha.replace("# ", ""), level=1)
-            elif linha.startswith("## "):
-                p = doc.add_heading(linha.replace("## ", ""), level=2)
-            elif linha.startswith("### "):
-                p = doc.add_heading(linha.replace("### ", ""), level=3)
-            else:
-                # Parágrafo normal
-                p = doc.add_paragraph(linha)
-
-                # Aplicar formatação de negrito a padrões específicos
-                for run in p.runs:
-                    if any(
-                        word in run.text
-                        for word in [
-                            "RISCO ALTO",
-                            "RISCO MÉDIO",
-                            "Cláusula:",
-                            "Problema:",
-                            "Base legal:",
-                            "Sugestão",
-                        ]
-                    ):
-                        run.bold = True
-
-        # Adicionar rodapé
-        doc.add_paragraph()
-        rodape = doc.add_paragraph(
-            "Documento gerado pela plataforma TRUST CORPORATION - Contrato Seguro IA"
-        )
-        for run in rodape.runs:
-            run.font.size = Pt(8)
-            run.italic = True
-
-        # Salvar em buffer
-        buffer = BytesIO()
-        doc.save(buffer)
-        buffer.seek(0)
-
-        return buffer
-
-    except Exception as e:
-        logger.error(f"Erro ao gerar Word: {str(e)}")
-        raise
-
-
-def responder_duvida_clausula(duvida: str, contexto_analise: str) -> str:
-    """
-    Usa Gemini para responder dúvidas sobre o contrato analisado.
-
-    Args:
-        duvida: Pergunta do usuário sobre o contrato
-        contexto_analise: Texto da análise do contrato
-
-    Returns:
-        Resposta gerada pela IA
-    """
-    try:
-        import os as _os
-        api_key = _os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            return "Erro: Chave da API Gemini não configurada. Configure GEMINI_API_KEY no arquivo .env"
-        genai.configure(api_key=api_key)
-
-        prompt = f"""Você é um assistente jurídico especializado em análise de contratos.
-Responda a seguinte dúvida do usuário baseando-se na análise fornecida.
-
-Análise do Contrato:
-{contexto_analise}
-
-Dúvida do usuário:
-{duvida}
-
-Forneça uma resposta clara, objetiva e fundamentada baseada apenas na análise fornecida."""
-
-        model = genai.GenerativeModel("gemini-2.5-flash")
-        response = model.generate_content(prompt)
-
-        return response.text
-
-    except Exception as e:
-        logger.error(f"Erro ao responder dúvida: {str(e)}")
-        return f"Desculpe, não consegui processar sua pergunta. Erro: {str(e)}"
 
 
 # ================================================================
@@ -964,7 +560,7 @@ with st.sidebar:
     )
     modelo = st.radio(
         "Escolha o modelo",
-        ["DeepSeek (Primário)", "Gemini (Cloud)", "Ollama (Local)"],
+        ["DeepSeek (Primário)", "Gemini (Cloud)"],
         index=0,
         label_visibility="collapsed",
     )
@@ -972,7 +568,6 @@ with st.sidebar:
     modelo_map = {
         "DeepSeek (Primário)": "deepseek",
         "Gemini (Cloud)": "gemini",
-        "Ollama (Local)": "ollama",
     }
 
     modelo_selecionado = modelo_map[modelo]
@@ -1137,7 +732,7 @@ with st.expander("📖 Tutorial — Como usar o ContratoSeguro IA", expanded=Fal
 
     **3. 🤖 Escolha do Modelo**
     - **DeepSeek** (padrão) — mais rápido e econômico
-    - **Gemini** e **Ollama** como alternativas
+    - **Gemini** como alternativa
     - Fallback automático ativado por padrão
 
     **4. 🔍 Análise**
@@ -1202,6 +797,7 @@ if arquivo_upload is not None:
             if ext.endswith(".pdf"):
                 pdf_bytes = BytesIO(file_bytes)
                 texto_extraido = extrair_texto_pdf_bytes(pdf_bytes, enable_ocr=usar_ocr)
+                logger.info(f"PDF extraido: {len(texto_extraido)} caracteres de {arquivo_upload.name}")
 
                 metadados = extrair_metadados_pdf(pdf_bytes)
                 if any(v != "N/A" for v in metadados.values()):
@@ -1289,9 +885,13 @@ if st.session_state.texto_original:
         texto_contrato = st.session_state.texto_original
         cache_hit = False
         resultado = ""
-        tempo_inicio = __import__("time").time()
+        tempo_inicio = time.time()
         user_id = st.session_state.authenticated_user.get("username", "anonymous")
         model_used = st.session_state.modelo_selecionado
+
+        if not st.session_state.auth_service.check_rate_limit(user_id):
+            st.error("Limite de requisições excedido. Aguarde um minuto antes de tentar novamente.")
+            st.stop()
 
         cached = cache_mgr.get_analysis(texto_contrato)
         if cached and "analise" in cached and isinstance(cached["analise"], str):
@@ -1314,9 +914,12 @@ if st.session_state.texto_original:
         if resultado:
             st.session_state.analise_resultado = resultado
             st.session_state.cache_analise = resultado
-            tempo_total = __import__("time").time() - tempo_inicio
+            tempo_total = time.time() - tempo_inicio
             if not cache_hit:
                 st.caption(f"⏱️ Tempo de análise: {tempo_total:.1f}s")
+                st.session_state.auth_service.log_analysis_request(
+                    user_id, st.session_state.nome_arquivo
+                )
 
             if not cache_hit:
                 riscos_dict = extrair_numeros_riscos(resultado)
@@ -1363,65 +966,10 @@ if st.session_state.analise_resultado:
         ]
     )
 
-    # --- ABA 1: DASHBOARD ---
     with tab_dashboard:
-        riscos_dict = extrair_numeros_riscos(st.session_state.analise_resultado)
+        from tabs.dashboard import render_dashboard
+        render_dashboard()
 
-        st.markdown(
-            '<h3 style="color: #3A6FA0;">Métricas de Risco</h3>', unsafe_allow_html=True
-        )
-        exibir_estatisticas(st.session_state.analise_resultado)
-
-        total = riscos_dict["altos"] + riscos_dict["medios"] + riscos_dict["baixos"]
-        if total > 0:
-            st.markdown(
-                '<h3 style="color: #3A6FA0; margin-top: 2rem;">📈 Gráfico de Riscos</h3>',
-                unsafe_allow_html=True,
-            )
-            try:
-                from report_service import gerar_grafico_risco_pizza, gerar_grafico_radar
-
-                col_g1, col_g2 = st.columns(2)
-                with col_g1:
-                    grafico_buf = gerar_grafico_risco_pizza(
-                        riscos_dict["altos"], riscos_dict["medios"], riscos_dict["baixos"]
-                    )
-                    if grafico_buf:
-                        st.image(grafico_buf, width=350)
-
-                with col_g2:
-                    nota_riscos = max(0, 10 - (riscos_dict["altos"] * 3 + riscos_dict["medios"] * 1.5))
-                    radar_buf = gerar_grafico_radar({
-                        "Clareza": 7.0,
-                        "Equilíbrio": min(10, 8 - riscos_dict["altos"] * 2),
-                        "Segurança": min(10, 8 - riscos_dict["altos"] * 1.5),
-                        "LGPD": 7.5,
-                        "Riscos": min(10, nota_riscos),
-                    })
-                    if radar_buf:
-                        st.image(radar_buf, width=350)
-            except Exception as e:
-                st.caption(f"Gráficos indisponíveis: matplotlib não instalado")
-
-        st.markdown(
-            '<h3 style="color: #3A6FA0; margin-top: 2rem;">⚠️ Resumo Executivo (Máximo 20 linhas)</h3>',
-            unsafe_allow_html=True,
-        )
-
-        # Exibir resumo em um container elegante
-        pontos = extrair_pontos_atencao(
-            st.session_state.analise_resultado, max_linhas=20
-        )
-        st.markdown(
-            f"""
-            <div style="background-color: #F7F2EA; padding: 1.5rem; border-radius: 8px; border-left: 5px solid #D4AF37; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-                {pontos.replace(chr(10), "<br>")}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    # --- ABA 2: ANÁLISE COMPLETA ---
     with tab_analise:
         st.markdown(
             '<h3 style="color: #3A6FA0;">Documento de Análise Detalhada</h3>',
@@ -1436,270 +984,17 @@ if st.session_state.analise_resultado:
         st.markdown(st.session_state.analise_resultado)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # --- ABA 3: SUGESTÃO DE CLÁUSULAS ---
     with tab_clausulas:
-        st.markdown(
-            '<h3 style="color: #3A6FA0;">📝 Cláusulas Problemáticas e Sugestões</h3>',
-            unsafe_allow_html=True,
-        )
-        st.write("Redações alternativas para cláusulas de risco identificadas na análise.")
+        from tabs.clauses import render_clauses
+        render_clauses()
 
-        try:
-            from clause_service import extrair_clausulas_risco, get_clausula_padrao
-
-            clausulas = extrair_clausulas_risco(st.session_state.analise_resultado)
-
-            if clausulas:
-                for i, c in enumerate(clausulas):
-                    emoji = "🔴" if c["nivel"] == "alto" else ("🟠" if c["nivel"] == "medio" else "🟢")
-                    with st.expander(
-                        f"{emoji} {c['texto_clausula'][:80]}...",
-                        expanded=(i == 0 and c["nivel"] == "alto"),
-                    ):
-                        col_a, col_b = st.columns(2)
-                        with col_a:
-                            st.markdown("**Cláusula original:**")
-                            st.warning(c["texto_clausula"])
-                            st.markdown("**Problema:**")
-                            st.write(c["problema"][:300])
-                            st.markdown("**Base legal:**")
-                            st.caption(c["base_legal"][:200])
-
-                        with col_b:
-                            st.markdown("**Sugestão:**")
-                            cpadrao = None
-                            if "multa" in c["texto_clausula"].lower() or "multa" in c["problema"].lower():
-                                cpadrao = get_clausula_padrao("multa_rescisoria")
-                            elif "foro" in c["texto_clausula"].lower() or "foro" in c["problema"].lower():
-                                cpadrao = get_clausula_padrao("foro_eleicao")
-                            elif "confidencial" in c["texto_clausula"].lower() or "sigilo" in c["problema"].lower():
-                                cpadrao = get_clausula_padrao("confidencialidade")
-                            elif "lgpd" in c["texto_clausula"].lower() or "dados" in c["problema"].lower():
-                                cpadrao = get_clausula_padrao("lgpd")
-                            elif "reajust" in c["texto_clausula"].lower() or "corre" in c["problema"].lower():
-                                cpadrao = get_clausula_padrao("reajuste")
-
-                            if cpadrao:
-                                st.success(cpadrao[:600])
-                            else:
-                                st.info("Gere a sugestão com IA clicando abaixo:")
-                                if st.button(f"🤖 Gerar sugestão IA", key=f"gen_clause_{i}"):
-                                    with st.spinner("Consultando DeepSeek..."):
-                                        ok_sug, texto_sug = __import__("clause_service").sugerir_clausula_alternativa(
-                                            clausula_original=c["texto_clausula"],
-                                            tipo_problema=c["problema"],
-                                            base_legal=c["base_legal"],
-                                            tipo_contrato="prestação de serviços",
-                                        )
-                                        if ok_sug:
-                                            st.session_state[f"clause_sug_{i}"] = texto_sug
-                                        else:
-                                            st.error(texto_sug)
-                                if f"clause_sug_{i}" in st.session_state:
-                                    st.success(st.session_state[f"clause_sug_{i}"][:1000])
-            else:
-                st.info("Nenhuma cláusula de risco identificada no formato estruturado. Verifique a aba Análise Completa.")
-        except Exception as e:
-            st.warning(f"Erro ao extrair cláusulas: {e}")
-            st.info("A análise completa está disponível na aba 'Análise Completa'.")
-
-    # --- ABA 4: CHAT DE DÚVIDAS ---
     with tab_chat:
-        st.markdown(
-            '<h3 style="color: #3A6FA0;">💬 Tire dúvidas sobre o contrato</h3>',
-            unsafe_allow_html=True,
-        )
-        st.write(
-            "Converse com a IA para esclarecer pontos específicos do contrato analisado."
-        )
+        from tabs.chat import render_chat
+        render_chat()
 
-        # Exibir histórico de mensagens
-        for message in st.session_state.chat_messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-
-        # Input para nova mensagem
-        duvida = st.chat_input(
-            "Ex: O que acontece se a parte atrasar o pagamento em 5 dias?",
-            key="chat_input",
-        )
-
-        if duvida:
-            st.session_state.chat_messages.append({"role": "user", "content": duvida})
-            with st.chat_message("user"):
-                st.markdown(duvida)
-
-            with st.spinner("Analisando cláusulas e gerando resposta..."):
-                try:
-                    resposta = responder_duvida_clausula(
-                        duvida, st.session_state.analise_resultado
-                    )
-                    st.session_state.chat_messages.append(
-                        {"role": "assistant", "content": resposta}
-                    )
-                    with st.chat_message("assistant"):
-                        st.markdown(resposta)
-                except Exception as e:
-                    st.error(f"Erro ao gerar resposta: {str(e)}")
-                    logger.error(f"Erro no chat: {str(e)}")
-
-    # --- ABA 4: EXPORTAÇÃO ---
     with tab_export:
-        st.markdown(
-            '<h3 style="color: #3A6FA0;">💾 Exportar e Compartilhar</h3>',
-            unsafe_allow_html=True,
-        )
-        st.write("Baixe a análise completa ou compartilhe o resumo com seus clientes.")
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            st.markdown(
-                '<div class="info-card" style="text-align: center;">',
-                unsafe_allow_html=True,
-            )
-            st.markdown("#### PDF Oficial")
-            st.write("Documento formatado ideal para impressão e envio formal.")
-            if st.button("📄 Gerar PDF", use_container_width=True):
-                try:
-                    with st.spinner("Gerando PDF..."):
-                        pdf_buffer = gerar_pdf(
-                            st.session_state.analise_resultado,
-                            st.session_state.nome_arquivo,
-                        )
-                        st.download_button(
-                            label="⬇️ Baixar PDF",
-                            data=pdf_buffer,
-                            file_name=f"analise_{Path(st.session_state.nome_arquivo).stem}.pdf",
-                            mime="application/pdf",
-                            use_container_width=True,
-                            key="btn_dl_pdf",
-                        )
-                        st.success("Pronto!")
-                except Exception as e:
-                    st.error(f"Erro ao gerar PDF: {str(e)}")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        with col2:
-            st.markdown(
-                '<div class="info-card" style="text-align: center;">',
-                unsafe_allow_html=True,
-            )
-            st.markdown("#### Word (Editável)")
-            st.write(
-                "Documento editável (.docx) para você adicionar seus próprios comentários."
-            )
-            if st.button("📝 Gerar Word", use_container_width=True):
-                try:
-                    with st.spinner("Gerando Word..."):
-                        word_buffer = gerar_word(
-                            st.session_state.analise_resultado,
-                            st.session_state.nome_arquivo,
-                        )
-                        st.download_button(
-                            label="⬇️ Baixar Word",
-                            data=word_buffer,
-                            file_name=f"analise_{Path(st.session_state.nome_arquivo).stem}.docx",
-                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                            use_container_width=True,
-                            key="btn_dl_word",
-                        )
-                        st.success("Pronto!")
-                except Exception as e:
-                    st.error(f"Erro ao gerar Word: {str(e)}")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        with col3:
-            st.markdown(
-                '<div class="info-card" style="text-align: center;">',
-                unsafe_allow_html=True,
-            )
-            st.markdown("#### 📱 WhatsApp (Twilio)")
-            st.write("PDF + resumo enviados automaticamente.")
-
-            telefone = st.text_input(
-                "Seu número de WhatsApp:",
-                placeholder="5514999999999",
-                value=st.session_state.get("user_whatsapp", ""),
-                key="whatsapp_twilio_phone",
-            )
-
-            if st.button("🚀 Enviar PDF + Resumo", use_container_width=True, type="primary"):
-                if not telefone:
-                    st.warning("Informe seu número de WhatsApp")
-                else:
-                    try:
-                        with st.spinner("Gerando PDF e enviando via Twilio..."):
-                            from notification_service import NotificationService
-
-                            notifier = NotificationService()
-                            pdf_buf = gerar_pdf(
-                                st.session_state.analise_resultado,
-                                st.session_state.nome_arquivo,
-                            )
-                            resumo = extrair_pontos_atencao(
-                                st.session_state.analise_resultado, max_linhas=20
-                            )
-                            phone = "".join(c for c in telefone if c.isdigit())
-                            fname = f"analise_{Path(st.session_state.nome_arquivo).stem}.pdf"
-
-                            ok, msg = notifier.send_whatsapp_pdf_twilio(
-                                to_number=phone,
-                                pdf_buffer=pdf_buf,
-                                filename=fname,
-                                summary=resumo,
-                                contract_name=st.session_state.nome_arquivo,
-                            )
-
-                            if ok:
-                                st.success(f"Enviado com sucesso para {phone}!")
-                            else:
-                                st.error(f"Falha: {msg}")
-                                st.info("Verifique se o número está autorizado no sandbox Twilio (join parts-current)")
-
-                    except Exception as e:
-                        st.error(f"Erro: {str(e)}")
-
-            # Tutorial
-            with st.expander("📖 Autorize o envio do WhatsApp", expanded=False):
-                st.markdown("""
-                **Para poder receber os arquivos, faça somente 1 vez:**
-
-                Envie uma mensagem de seu número de WhatsApp para o número:
-                ```
-                +1 415 523 8886
-                ```
-                Com a mensagem:
-                ```
-                join parts-current
-                ```
-                """)
-
-            st.markdown("---")
-
-            # Fallback: link manual
-            st.markdown("#### 🔗 Link manual (fallback)")
-            st.write("Se o Twilio falhar, envie o resumo manualmente.")
-            if st.button("📱 Abrir WhatsApp com resumo", use_container_width=True):
-                resumo = extrair_pontos_atencao(
-                    st.session_state.analise_resultado, max_linhas=20
-                )
-                mensagem = (
-                    "📊 *ANÁLISE DE CONTRATO - TRUST CORPORATION*\n"
-                    f"📄 *Contrato:* {st.session_state.nome_arquivo}\n\n"
-                    "⚠️ *RESUMO DE RISCOS:*\n"
-                    f"{resumo}\n\n"
-                    "✅ TRUST CORPORATION - Contrato Seguro IA"
-                )
-                st.markdown(
-                    f'<a href="https://api.whatsapp.com/send?text={quote(mensagem[:4000])}" target="_blank">'
-                    '<button style="width: 100%; padding: 0.75rem; background-color: #25D366; '
-                    'color: white; border: none; border-radius: 0.4rem; cursor: pointer; '
-                    'font-weight: bold;">📱 Abrir WhatsApp</button></a>',
-                    unsafe_allow_html=True,
-                )
-
-            st.markdown("</div>", unsafe_allow_html=True)
+        from tabs.export import render_export
+        render_export()
 
 # ================================================================
 # RODAPÉ

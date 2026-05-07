@@ -12,11 +12,30 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
+
+import requests
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_USERS_FILE = Path(__file__).parent / "cache" / "users.json"
 DEFAULT_AUDIT_FILE = Path(__file__).parent / "logs" / "audit.json"
+DEFAULT_GOOGLE_REDIRECT_URI = "https://jus.trustcorp.com.br"
+
+
+def _is_truthy_env(value: Optional[str]) -> bool:
+    """Interpreta flags booleanas vindas do ambiente."""
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_local_redirect_uri(uri: str) -> bool:
+    """Detecta redirects locais que não devem ser usados em produção."""
+    try:
+        hostname = (urlparse(uri).hostname or "").strip().lower()
+    except Exception:
+        return False
+
+    return hostname in {"localhost", "127.0.0.1", "0.0.0.0"}
 
 
 def _hash_password(password: str, salt: Optional[bytes] = None) -> Tuple[str, str]:
@@ -347,21 +366,56 @@ class AuthService:
             audit = [e for e in audit if e.get("user") == username]
         return audit[-limit:]
 
-    def google_login_url(self, redirect_uri: str) -> str:
+    def is_google_oauth_configured(self) -> bool:
+        """Retorna se o OAuth do Google está configurado no ambiente."""
+        return bool(os.getenv("GOOGLE_CLIENT_ID", "").strip()) and bool(
+            os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+        )
+
+    def resolve_google_redirect_uri(self, redirect_uri: Optional[str] = None) -> str:
+        """Resolve a URI de callback do Google a partir do argumento ou ambiente."""
+        allow_localhost = _is_truthy_env(os.getenv("ALLOW_LOCALHOST_OAUTH_REDIRECT"))
+        candidates = [
+            redirect_uri,
+            os.getenv("GOOGLE_REDIRECT_URI"),
+            DEFAULT_GOOGLE_REDIRECT_URI,
+        ]
+
+        for candidate in candidates:
+            if not candidate:
+                continue
+            normalized = str(candidate).strip()
+            if normalized.startswith(("http://", "https://")):
+                if _is_local_redirect_uri(normalized) and not allow_localhost:
+                    logger.warning(
+                        f"Google redirect URI local ignorada: {normalized}"
+                    )
+                    continue
+                return normalized
+
+        return DEFAULT_GOOGLE_REDIRECT_URI
+
+    def google_login_url(self, redirect_uri: Optional[str] = None) -> str:
         """Gera URL de login OAuth do Google."""
         from urllib.parse import urlencode
+        import base64, json as _json
 
-        client_id = os.getenv("GOOGLE_CLIENT_ID", "")
-        if not client_id:
+        client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+        if not self.is_google_oauth_configured() or not client_id:
             return ""
+
+        resolved_redirect_uri = self.resolve_google_redirect_uri(redirect_uri)
+        state_data = _json.dumps({"redirect_uri": resolved_redirect_uri})
+        state = base64.urlsafe_b64encode(state_data.encode()).decode()
 
         params = {
             "client_id": client_id,
-            "redirect_uri": redirect_uri,
+            "redirect_uri": resolved_redirect_uri,
             "response_type": "code",
             "scope": "openid email profile",
             "access_type": "offline",
             "prompt": "consent",
+            "state": state,
         }
         return f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
 
@@ -376,15 +430,14 @@ class AuthService:
         Returns:
             Tuple (sucesso, mensagem, dados_do_usuario)
         """
-        import requests
+        client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+        client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
 
-        client_id = os.getenv("GOOGLE_CLIENT_ID", "")
-        client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "")
-
-        if not client_id or not client_secret:
+        if not self.is_google_oauth_configured():
             return False, "Google OAuth não configurado", None
 
         try:
+            resolved_redirect_uri = self.resolve_google_redirect_uri()
             token_resp = requests.post(
                 "https://oauth2.googleapis.com/token",
                 data={
@@ -392,12 +445,14 @@ class AuthService:
                     "client_secret": client_secret,
                     "code": code,
                     "grant_type": "authorization_code",
-                    "redirect_uri": redirect_uri,
+                    "redirect_uri": resolved_redirect_uri,
                 },
                 timeout=15,
             )
 
             if token_resp.status_code != 200:
+                error_text = token_resp.text[:300]
+                logger.warning(f"Falha token Google: {error_text}")
                 return False, "Erro ao validar código Google", None
 
             tokens = token_resp.json()
