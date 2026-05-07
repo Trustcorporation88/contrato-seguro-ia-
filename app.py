@@ -133,7 +133,7 @@ st.markdown(
 
     /* ============ BUTTONS PROFISSIONAIS ============ */
     .stButton > button {
-        background-color: #4088C0 !important;
+        background-color: #5DADE2 !important;  /* Azul mais claro */
         color: white !important;
         border: none !important;
         border-radius: 4px !important;
@@ -141,27 +141,27 @@ st.markdown(
         font-weight: 600 !important;
         letter-spacing: 0.5px !important;
         transition: all 0.3s ease !important;
-        box-shadow: 0 2px 6px rgba(64,136,192,0.2) !important;
+        box-shadow: 0 2px 6px rgba(93,173,226,0.2) !important;
     }
 
     .stButton > button[kind="primary"] {
-        background-color: #4088C0 !important;
+        background-color: #5499C7 !important;
         border: none !important;
         color: white !important;
     }
 
     .stButton > button:hover {
-        background-color: #5B9E6D !important;
-        box-shadow: 0 4px 12px rgba(91,158,109,0.3) !important;
+        background-color: #85C1E9 !important;  /* Azul ainda mais claro no hover */
+        box-shadow: 0 4px 12px rgba(133,193,233,0.3) !important;
         transform: translateY(-2px) !important;
     }
 
     .stButton > button[kind="primary"]:hover {
-        background-color: #5B9E6D !important;
+        background-color: #85C1E9 !important;
     }
 
     .stFormSubmitButton > button {
-        background-color: #4088C0 !important;
+        background-color: #5DADE2 !important;  /* Azul mais claro */
         color: white !important;
         border: none !important;
         font-weight: 600 !important;
