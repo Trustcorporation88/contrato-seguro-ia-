@@ -1,6 +1,7 @@
 """
 Testes para o módulo pdf_extractor.py.
 """
+from io import BytesIO
 import sys
 from pathlib import Path
 
@@ -84,10 +85,29 @@ def test_get_candidate_ocr_languages_falls_back_when_config_is_unavailable():
     assert idiomas == ("eng",)
 
 
+def test_extrair_texto_pdf_bytes_handles_invalid_pdf_error():
+    """Deve converter erro de PDF inválido sem depender de exceção inexistente."""
+    original_open = pdf_extractor.fitz.open
+
+    def _raise_file_data_error(*args, **kwargs):
+        raise pdf_extractor.fitz.FileDataError("arquivo invalido")
+
+    try:
+        pdf_extractor.fitz.open = _raise_file_data_error
+        try:
+            pdf_extractor.extrair_texto_pdf_bytes(BytesIO(b"nao-e-pdf"), enable_ocr=True)
+            assert False, "Era esperado erro para PDF inválido"
+        except Exception as exc:
+            assert "PDF corrompido ou inválido" in str(exc)
+    finally:
+        pdf_extractor.fitz.open = original_open
+
+
 if __name__ == "__main__":
     test_page_has_usable_text_with_contract_content()
     test_extract_page_text_prefers_ocr_when_direct_text_is_poor()
     test_extract_page_text_keeps_direct_text_when_it_is_good()
     test_get_candidate_ocr_languages_prefers_supported_configurations()
     test_get_candidate_ocr_languages_falls_back_when_config_is_unavailable()
+    test_extrair_texto_pdf_bytes_handles_invalid_pdf_error()
     print("Todos os testes de pdf_extractor.py passaram!")

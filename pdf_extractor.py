@@ -276,7 +276,7 @@ def extrair_texto_pdf_bytes(
 
         return texto_final
 
-    except fitz.FileError as e:
+    except (fitz.FileDataError, fitz.EmptyFileError, ValueError) as e:
         logger.error(f"Erro ao abrir PDF: {str(e)}")
         raise Exception(f"PDF corrompido ou inválido: {str(e)}")
     except Exception as e:
