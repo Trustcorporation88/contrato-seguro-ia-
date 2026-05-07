@@ -552,9 +552,18 @@ with st.sidebar:
         f'</div>',
         unsafe_allow_html=True,
     )
-    if st.button("🚪 Sair", use_container_width=True):
-        st.session_state.authenticated_user = None
-        st.rerun()
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        if st.button("🚪 Sair", use_container_width=True):
+            st.session_state.authenticated_user = None
+            st.rerun()
+    
+    with col_btn2:
+        # Botão Admin (apenas para admins)
+        if user.get("role") == "admin":
+            if st.button("📊 Admin", use_container_width=True):
+                st.session_state.show_admin = not st.session_state.get("show_admin", False)
+                st.rerun()
 
     st.markdown("---")
 
@@ -724,6 +733,19 @@ A TRUST CORPORATION não se responsabiliza por decisões tomadas com base exclus
 """)
 
 st.divider()
+
+# ================================================================
+# PAINEL ADMINISTRATIVO COMPLETO (SE ATIVADO)
+# ================================================================
+
+if st.session_state.get("show_admin", False):
+    from tabs.admin import render_admin_tab
+    render_admin_tab()
+    st.markdown("---")
+    if st.button("🔙 Voltar para Análise"):
+        st.session_state.show_admin = False
+        st.rerun()
+    st.stop()  # Para exibição para não mostrar upload/análise
 
 # ================================================================
 # TUTORIAL DE USO

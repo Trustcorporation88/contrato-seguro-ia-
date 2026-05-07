@@ -347,6 +347,13 @@ class AuthService:
     def log_analysis_request(self, username: str, contract_name: str) -> None:
         """Registra uma solicitação de análise no log de auditoria."""
         self._log_audit(username, "ANALYSIS_REQUEST", f"Contrato: {contract_name}")
+    
+    def log_activity(self, username: str, action: str = "PAGE_VIEW") -> None:
+        """
+        Registra uma atividade do usuário para tracking de sessão.
+        Útil para calcular tempo de uso.
+        """
+        self._log_audit(username, action, "")
 
     def get_audit_log(
         self, username: Optional[str] = None, limit: int = 100
