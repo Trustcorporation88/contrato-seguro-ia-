@@ -146,15 +146,16 @@ def _ocr_page_with_api(page) -> str:
         img_bytes = pix.tobytes("png")
         img_base64 = base64.b64encode(img_bytes).decode("utf-8")
 
-        # Chama API OCR.space
+        # Chama API OCR.space com multipart/form-data
         url = "https://api.ocr.space/parse/image"
         payload = {
             "apikey": _OCR_SPACE_API_KEY,
-            "language": "por",  # Português
-            "isOverlayRequired": False,
+            "language": "por",
+            "isOverlayRequired": "false",
             "base64Image": f"data:image/png;base64,{img_base64}",
         }
 
+        # Usa data (form-encoded) ao invés de json
         response = requests.post(url, data=payload, timeout=60)
         response.raise_for_status()
         result = response.json()
