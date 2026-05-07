@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+from functools import lru_cache
 from io import BytesIO
 from typing import Dict, Optional, Tuple
 
@@ -32,6 +33,54 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
     logger.info("pytesseract/Pillow não instalados. OCR desabilitado.")
+
+
+@lru_cache(maxsize=1)
+def get_ocr_status() -> Tuple[bool, str, Tuple[str, ...]]:
+    """
+    Retorna o estado real do OCR no ambiente.
+
+    Diferente de OCR_AVAILABLE, valida também se o executável do Tesseract e os
+    idiomas estão acessíveis em tempo de execução.
+    """
+    if not OCR_AVAILABLE:
+        return False, "pytesseract/Pillow não instalados", ()
+
+    try:
+        pytesseract.get_tesseract_version()
+    except pytesseract.TesseractNotFoundError:
+        return False, "executável do Tesseract não encontrado", ()
+    except Exception as exc:
+        return False, f"falha ao validar Tesseract: {exc}", ()
+
+    try:
+        languages = tuple(sorted(set(pytesseract.get_languages(config=""))))
+    except Exception as exc:
+        return False, f"falha ao listar idiomas do Tesseract: {exc}", ()
+
+    if not languages:
+        return False, "nenhum idioma OCR disponível no Tesseract", ()
+
+    return True, "OCR disponível", languages
+
+
+def _get_candidate_ocr_languages(available_languages: Tuple[str, ...]) -> Tuple[str, ...]:
+    """Retorna combinações de idioma válidas para o ambiente atual."""
+    valid_languages = []
+
+    for lang in _OCR_LANGUAGES:
+        lang_parts = tuple(part.strip() for part in lang.split("+") if part.strip())
+        if lang_parts and all(part in available_languages for part in lang_parts):
+            valid_languages.append(lang)
+
+    if valid_languages:
+        return tuple(valid_languages)
+
+    for fallback in ("por", "eng"):
+        if fallback in available_languages:
+            return (fallback,)
+
+    return available_languages[:1]
 
 
 def _normalize_text(text: str) -> str:
@@ -82,7 +131,9 @@ def _ocr_page(page) -> str:
     Returns:
         Texto extraído via OCR
     """
-    if not OCR_AVAILABLE:
+    ocr_ready, ocr_reason, available_languages = get_ocr_status()
+    if not ocr_ready:
+        logger.warning(f"OCR indisponível na página {page.number + 1}: {ocr_reason}")
         return ""
 
     try:
@@ -91,7 +142,7 @@ def _ocr_page(page) -> str:
         best_text = ""
         best_lang = None
 
-        for lang in _OCR_LANGUAGES:
+        for lang in _get_candidate_ocr_languages(available_languages):
             try:
                 texto = pytesseract.image_to_string(img, lang=lang).strip()
             except pytesseract.TesseractError as lang_error:
@@ -209,7 +260,21 @@ def extrair_texto_pdf_bytes(
         if pages_with_ocr > 0:
             logger.info(f"OCR aplicado em {pages_with_ocr} página(s)")
 
-        return texto.strip()
+        texto_final = texto.strip()
+
+        if not texto_final and enable_ocr:
+            ocr_ready, ocr_reason, available_languages = get_ocr_status()
+            if not ocr_ready:
+                raise Exception(
+                    f"OCR indisponível para PDF escaneado: {ocr_reason}"
+                )
+            raise Exception(
+                "Nenhum texto foi extraído do PDF. O arquivo parece escaneado, "
+                f"mas o OCR não conseguiu reconhecer conteúdo legível. "
+                f"Idiomas disponíveis: {', '.join(available_languages)}"
+            )
+
+        return texto_final
 
     except fitz.FileError as e:
         logger.error(f"Erro ao abrir PDF: {str(e)}")

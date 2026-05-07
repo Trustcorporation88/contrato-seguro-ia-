@@ -71,8 +71,23 @@ def test_extract_page_text_keeps_direct_text_when_it_is_good():
     assert texto == texto_direto
 
 
+def test_get_candidate_ocr_languages_prefers_supported_configurations():
+    """Deve selecionar apenas combinações de idioma suportadas pelo ambiente."""
+    idiomas = pdf_extractor._get_candidate_ocr_languages(("eng", "por"))
+    assert idiomas[0] == "por"
+    assert "por+eng" in idiomas
+
+
+def test_get_candidate_ocr_languages_falls_back_when_config_is_unavailable():
+    """Deve cair para idioma disponível quando combinações configuradas não existem."""
+    idiomas = pdf_extractor._get_candidate_ocr_languages(("eng",))
+    assert idiomas == ("eng",)
+
+
 if __name__ == "__main__":
     test_page_has_usable_text_with_contract_content()
     test_extract_page_text_prefers_ocr_when_direct_text_is_poor()
     test_extract_page_text_keeps_direct_text_when_it_is_good()
+    test_get_candidate_ocr_languages_prefers_supported_configurations()
+    test_get_candidate_ocr_languages_falls_back_when_config_is_unavailable()
     print("Todos os testes de pdf_extractor.py passaram!")

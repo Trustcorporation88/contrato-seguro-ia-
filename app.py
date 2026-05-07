@@ -783,6 +783,12 @@ arquivo_upload = st.file_uploader(
     help="Formatos aceitos: PDF, Word (.docx), Excel (.xlsx) ou TXT",
 )
 
+st.info(
+    "📌 **Aviso sobre arquivos escaneados:** se o PDF for escaneado/digitalizado, "
+    "a leitura com OCR pode levar alguns minutos após o envio do arquivo. "
+    "Esse processamento é mais lento do que a leitura de PDFs com texto nativo."
+)
+
 if arquivo_upload is not None:
     st.session_state.nome_arquivo = arquivo_upload.name
 
