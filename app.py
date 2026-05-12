@@ -1,3 +1,8 @@
+import streamlit as st
+from google_oauth_service import handle_google_oauth_callback
+
+handle_google_oauth_callback()
+
 # ================================================================
 # CONTRATO SEGURO IA - Aplicação Principal
 # ================================================================
@@ -494,7 +499,7 @@ with col_badge2:
 
 with col_badge3:
     st.markdown(
-        '<div class="security-badge">✅ ISO 27001</div>',
+        '<div class="security-badge">📋 Auditoria interna</div>',
         unsafe_allow_html=True,
     )
 
@@ -516,12 +521,12 @@ st.markdown(
     <div class="trust-section">
         <h3 style="color: #3A6FA0; margin-top: 0;">🛡️ Garantias de Segurança</h3>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-            <div class="trust-indicator">✅ Dados não são salvos no servidor</div>
-            <div class="trust-indicator">✅ Análise 100% privada</div>
-            <div class="trust-indicator">✅ End-to-end encrypted</div>
-            <div class="trust-indicator">✅ Sem rastreamento</div>
+            <div class="trust-indicator">✅ Acesso protegido por login</div>
+            <div class="trust-indicator">✅ Documentos tratados para fins de análise</div>
+            <div class="trust-indicator">✅ Conexão protegida por HTTPS em produção</div>
+            <div class="trust-indicator">✅ Auditoria de acessos para segurança</div>
             <div class="trust-indicator">✅ Resultado em tempo real</div>
-            <div class="trust-indicator">✅ Modelo validado por especialistas</div>
+            <div class="trust-indicator">✅ Análise auxiliar com revisão recomendada</div>
         </div>
     </div>
     """,
@@ -1087,3 +1092,7 @@ with footer_col3:
     st.caption("© 2026 - Todos os direitos reservados")
 
 logger.info("Aplicação Streamlit iniciada com sucesso")
+
+
+
+

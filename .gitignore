@@ -1,5 +1,8 @@
 # Secrets - NUNCA commitar
 .env
+.env.*
+!.env.example
+.streamlit/secrets.toml
 
 # Python
 __pycache__/
@@ -11,35 +14,37 @@ build/
 *.egg
 
 # Cache e dados locais
-cache/
-cache_test/
+cache/*
 !cache/.gitkeep
+cache_test/
 
 # Logs
-logs/
+logs/*
 !logs/.gitkeep
 
 # Arquivos temporarios
-temp/
+temp/*
+!temp/.gitkeep
 *.tmp
 
-# Uploads de teste
+# Uploads/testes/documentos sensiveis
 temp.pdf
 *.pdf
+*.docx
+*.xlsx
 
-# Streamlit
-.streamlit/secrets.toml
+# Banco local
+*.db
+*.sqlite
+*.sqlite3
 
 # IDE
 .vscode/
 .idea/
 .zed/
+.vs/
 
 # OS
 Thumbs.db
 .DS_Store
-
-# Arquivos grandes/data
-*.db
-*.sqlite3
 nul
